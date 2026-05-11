@@ -1,0 +1,1077 @@
+import React, { useEffect, useMemo, useState } from "react";
+import { motion, AnimatePresence } from "framer-motion";
+import {
+  Upload,
+  Search,
+  Tags,
+  SortAsc,
+  Plus,
+  X,
+  BookOpen,
+  Image as ImageIcon,
+  Pencil,
+  Trash2,
+  LayoutDashboard,
+  Home,
+  Lock,
+  LogOut,
+  Star,
+  Library,
+  Eye,
+  Menu,
+  Database,
+  Users,
+  FileText,
+  Layers,
+  Megaphone,
+  UserPlus,
+} from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
+
+const storageKey = "comic_portal_library_v2";
+const adminCredentialsKey = "comic_portal_admin_credentials_v1";
+
+const defaultGenres = [
+  "Action",
+  "Adventure",
+  "Comedy",
+  "Drama",
+  "Fantasy",
+  "Horror",
+  "Mystery",
+  "Romance",
+  "Sci-Fi",
+  "Slice of Life",
+  "Superhero",
+];
+
+const starterComics = [
+  {
+    id: "comic-azure-knights",
+    title: "Azure Knights",
+    author: "Mika Vale",
+    genres: ["Fantasy", "Adventure"],
+    description: "A band of sky-guardians protects floating kingdoms from ancient machines.",
+    cover: "https://images.unsplash.com/photo-1635805737707-575885ab0820?q=80&w=900&auto=format&fit=crop",
+    featured: true,
+    status: "Published",
+    createdAt: "2026-05-01",
+    chapters: [
+      {
+        id: "azure-chapter-1",
+        title: "Chapter 1: The Floating Gate",
+        createdAt: "2026-05-01",
+        files: [{ id: "azure-file-1", name: "azure-knights-chapter-1.pdf", type: "PDF", src: "" }],
+      },
+      {
+        id: "azure-chapter-2",
+        title: "Chapter 2: The Clockwork Storm",
+        createdAt: "2026-05-02",
+        files: [{ id: "azure-file-2", name: "azure-knights-chapter-2.cbz", type: "Archive", src: "" }],
+      },
+    ],
+  },
+  {
+    id: "comic-neon-alley",
+    title: "Neon Alley",
+    author: "Jon Reyes",
+    genres: ["Sci-Fi", "Mystery"],
+    description: "A courier follows a glowing trail through a city that rewrites memories.",
+    cover: "https://images.unsplash.com/photo-1535223289827-42f1e9919769?q=80&w=900&auto=format&fit=crop",
+    featured: true,
+    status: "Published",
+    createdAt: "2026-05-03",
+    chapters: [
+      {
+        id: "neon-chapter-1",
+        title: "Chapter 1: Delivery 404",
+        createdAt: "2026-05-03",
+        files: [{ id: "neon-file-1", name: "neon-alley-chapter-1.pdf", type: "PDF", src: "" }],
+      },
+    ],
+  },
+  {
+    id: "comic-paper-heart-club",
+    title: "Paper Heart Club",
+    author: "Lina Song",
+    genres: ["Romance", "Slice of Life"],
+    description: "Four friends run a letter-writing booth and discover everyone has a secret.",
+    cover: "https://images.unsplash.com/photo-1515462277126-2dd0c162007a?q=80&w=900&auto=format&fit=crop",
+    featured: false,
+    status: "Draft",
+    createdAt: "2026-05-05",
+    chapters: [
+      {
+        id: "paper-chapter-1",
+        title: "Chapter 1: Dear Stranger",
+        createdAt: "2026-05-05",
+        files: [{ id: "paper-file-1", name: "paper-heart-club-page-1.png", type: "Image", src: "" }],
+      },
+    ],
+  },
+];
+
+function normalizeTitle(title) {
+  return title.trim().split(" ").filter(Boolean).join(" ");
+}
+
+function alphabetGroup(title) {
+  const first = title.trim().charAt(0).toUpperCase();
+  return /[A-Z]/.test(first) ? first : "#";
+}
+
+function todayDate() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function uniqueGenres(comics) {
+  const genreSet = new Set(defaultGenres);
+  comics.forEach((comic) => comic.genres.forEach((genre) => genreSet.add(genre)));
+  return Array.from(genreSet).sort((a, b) => a.localeCompare(b));
+}
+
+function getFileType(file) {
+  const name = file.name.toLowerCase();
+  if (file.type.startsWith("image/")) return "Image";
+  if (file.type === "application/pdf" || name.endsWith(".pdf")) return "PDF";
+  if (name.endsWith(".cbz") || name.endsWith(".zip") || name.endsWith(".cbr")) return "Archive";
+  return "File";
+}
+
+function readFileAsDataUrl(file) {
+  return new Promise((resolve) => {
+    if (!file.type.startsWith("image/")) {
+      resolve("");
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result || "");
+    reader.readAsDataURL(file);
+  });
+}
+
+function pathIsAdmin() {
+  return window.location.pathname.endsWith("/admin");
+}
+
+function navigateTo(path) {
+  window.history.pushState({}, "", path);
+  window.dispatchEvent(new PopStateEvent("popstate"));
+}
+
+function EmptyState({ title, description }) {
+  return (
+    <div className="rounded-[2rem] border border-white/10 bg-white/10 p-10 text-center text-slate-300">
+      <BookOpen className="mx-auto mb-3 h-10 w-10 text-violet-200" />
+      <h3 className="text-lg font-bold text-white">{title}</h3>
+      <p className="mx-auto mt-2 max-w-sm text-sm text-slate-400">{description}</p>
+    </div>
+  );
+}
+
+function GoogleAdSlot({ label = "Google Ad Space", size = "Responsive display ad" }) {
+  return (
+    <aside className="rounded-[2rem] border border-dashed border-amber-300/40 bg-amber-300/10 p-5 text-center text-amber-100">
+      <div className="mx-auto mb-3 grid h-12 w-12 place-items-center rounded-2xl bg-amber-300 text-slate-950">
+        <Megaphone className="h-6 w-6" />
+      </div>
+      <p className="font-bold">{label}</p>
+      <p className="mt-1 text-sm text-amber-100/80">{size}</p>
+      <p className="mx-auto mt-3 max-w-xl text-xs leading-5 text-amber-100/70">
+        Replace this placeholder with your Google AdSense ad unit code after your site is approved. Keep the layout space reserved so ads do not shift the page.
+      </p>
+    </aside>
+  );
+}
+
+function ComicCard({ comic, onRead, adminActions }) {
+  const chapterCount = comic.chapters?.length || 0;
+  const fileCount = comic.chapters?.reduce((total, chapter) => total + chapter.files.length, 0) || 0;
+
+  return (
+    <motion.article layout className="overflow-hidden rounded-3xl border border-white/10 bg-slate-900 shadow-lg">
+      <div className="relative">
+        <img src={comic.cover} alt={comic.title} className="h-56 w-full object-cover" />
+        <div className="absolute left-3 top-3 flex flex-wrap gap-2">
+          {comic.featured && (
+            <span className="inline-flex items-center gap-1 rounded-full bg-amber-300 px-3 py-1 text-xs font-bold text-slate-950">
+              <Star className="h-3.5 w-3.5" /> Featured
+            </span>
+          )}
+          <span className={`rounded-full px-3 py-1 text-xs font-bold ${comic.status === "Published" ? "bg-emerald-300 text-slate-950" : "bg-slate-800 text-slate-200"}`}>
+            {comic.status}
+          </span>
+        </div>
+      </div>
+      <div className="space-y-3 p-4">
+        <div>
+          <h3 className="line-clamp-1 text-lg font-bold text-white">{comic.title}</h3>
+          <p className="text-sm text-slate-400">by {comic.author}</p>
+        </div>
+        <p className="line-clamp-3 min-h-[4.5rem] text-sm leading-6 text-slate-300">{comic.description}</p>
+        <div className="flex flex-wrap gap-2">
+          {comic.genres.map((genre) => (
+            <span key={genre} className="rounded-full bg-violet-300/15 px-3 py-1 text-xs text-violet-100">
+              {genre}
+            </span>
+          ))}
+        </div>
+        <div className="grid grid-cols-2 gap-2 text-xs text-slate-400">
+          <span className="inline-flex items-center gap-2 rounded-2xl bg-slate-800 px-3 py-2">
+            <Layers className="h-4 w-4" /> {chapterCount} chapter{chapterCount === 1 ? "" : "s"}
+          </span>
+          <span className="inline-flex items-center gap-2 rounded-2xl bg-slate-800 px-3 py-2">
+            <FileText className="h-4 w-4" /> {fileCount} file{fileCount === 1 ? "" : "s"}
+          </span>
+        </div>
+        {adminActions ? (
+          <div className="flex flex-wrap gap-2 pt-1">{adminActions}</div>
+        ) : (
+          <Button type="button" onClick={() => onRead(comic)} className="w-full rounded-2xl py-5">
+            <Eye className="mr-2 h-4 w-4" /> View chapters
+          </Button>
+        )}
+      </div>
+    </motion.article>
+  );
+}
+
+function CustomerLanding({ comics, allGenres, selectedGenre, setSelectedGenre, query, setQuery, sortOrder, setSortOrder, onRead }) {
+  const publicComics = useMemo(() => comics.filter((comic) => comic.status === "Published"), [comics]);
+  const featured = publicComics.filter((comic) => comic.featured).slice(0, 3);
+
+  const filteredComics = useMemo(() => {
+    const normalizedQuery = query.trim().toLowerCase();
+    return publicComics
+      .filter((comic) => {
+        const chapterText = (comic.chapters || []).map((chapter) => `${chapter.title} ${chapter.files.map((file) => file.name).join(" ")}`).join(" ");
+        const matchesSearch =
+          !normalizedQuery ||
+          comic.title.toLowerCase().includes(normalizedQuery) ||
+          comic.author.toLowerCase().includes(normalizedQuery) ||
+          comic.description.toLowerCase().includes(normalizedQuery) ||
+          chapterText.toLowerCase().includes(normalizedQuery) ||
+          comic.genres.some((genre) => genre.toLowerCase().includes(normalizedQuery));
+        const matchesGenre = selectedGenre === "All" || comic.genres.includes(selectedGenre);
+        return matchesSearch && matchesGenre;
+      })
+      .sort((a, b) => {
+        const result = a.title.localeCompare(b.title, undefined, { sensitivity: "base" });
+        return sortOrder === "A-Z" ? result : -result;
+      });
+  }, [publicComics, query, selectedGenre, sortOrder]);
+
+  const groupedComics = useMemo(() => {
+    return filteredComics.reduce((groups, comic) => {
+      const group = alphabetGroup(comic.title);
+      groups[group] = groups[group] || [];
+      groups[group].push(comic);
+      return groups;
+    }, {});
+  }, [filteredComics]);
+
+  return (
+    <div className="space-y-8">
+      <GoogleAdSlot label="Top Banner Ad" size="Leaderboard / responsive display unit" />
+
+      <section className="grid gap-6 lg:grid-cols-[1.1fr_0.9fr]">
+        <motion.div initial={{ opacity: 0, y: 18 }} animate={{ opacity: 1, y: 0 }} className="rounded-[2rem] border border-white/10 bg-white/10 p-8 shadow-2xl backdrop-blur">
+          <p className="mb-3 inline-flex items-center gap-2 rounded-full bg-violet-400/15 px-3 py-1 text-sm text-violet-200">
+            <Library className="h-4 w-4" /> Customer Landing Page
+          </p>
+          <h1 className="max-w-3xl text-5xl font-black tracking-tight sm:text-6xl">Discover your next favorite comic.</h1>
+          <p className="mt-5 max-w-2xl text-lg leading-8 text-slate-300">
+            Browse comics by title, genre, and chapter. Some chapters can be PDFs, while others can be uploaded as individual image pages.
+          </p>
+          <div className="mt-7 flex flex-wrap gap-3">
+            <Button className="rounded-2xl px-6 py-6 text-base" onClick={() => document.getElementById("catalog")?.scrollIntoView({ behavior: "smooth" })}>
+              Browse catalog
+            </Button>
+            <Button variant="secondary" className="rounded-2xl px-6 py-6 text-base" onClick={() => setSelectedGenre("Fantasy")}>
+              View Fantasy
+            </Button>
+          </div>
+        </motion.div>
+
+        <motion.div initial={{ opacity: 0, y: 18 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.08 }} className="rounded-[2rem] border border-white/10 bg-slate-900 p-5 shadow-2xl">
+          <div className="mb-4 flex items-center justify-between">
+            <div>
+              <h2 className="text-xl font-bold text-white">Featured comics</h2>
+              <p className="text-sm text-slate-400">Promoted from the admin backend</p>
+            </div>
+            <Star className="h-6 w-6 text-amber-300" />
+          </div>
+          <div className="space-y-3">
+            {featured.length ? (
+              featured.map((comic) => (
+                <button key={comic.id} onClick={() => onRead(comic)} className="flex w-full items-center gap-4 rounded-2xl border border-white/10 bg-white/5 p-3 text-left transition hover:border-violet-300">
+                  <img src={comic.cover} alt={comic.title} className="h-20 w-16 rounded-xl object-cover" />
+                  <div>
+                    <h3 className="font-bold text-white">{comic.title}</h3>
+                    <p className="text-sm text-slate-400">{comic.chapters?.length || 0} chapter{comic.chapters?.length === 1 ? "" : "s"}</p>
+                  </div>
+                </button>
+              ))
+            ) : (
+              <p className="rounded-2xl bg-white/5 p-4 text-sm text-slate-400">No featured comics yet.</p>
+            )}
+          </div>
+        </motion.div>
+      </section>
+
+      <section id="catalog" className="space-y-5">
+        <Card className="rounded-[2rem] border-white/10 bg-white/10 text-white shadow-2xl backdrop-blur">
+          <CardContent className="p-5">
+            <div className="grid gap-3 md:grid-cols-[1fr_auto_auto]">
+              <div className="relative">
+                <Search className="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400" />
+                <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search comics, chapters, creators, or genres..." className="w-full rounded-2xl border border-white/10 bg-slate-900 py-3 pl-12 pr-4 outline-none transition focus:border-violet-300" />
+              </div>
+
+              <select value={selectedGenre} onChange={(event) => setSelectedGenre(event.target.value)} className="rounded-2xl border border-white/10 bg-slate-900 px-4 py-3 outline-none transition focus:border-violet-300">
+                <option value="All">All genres</option>
+                {allGenres.map((genre) => (
+                  <option key={genre} value={genre}>{genre}</option>
+                ))}
+              </select>
+
+              <button onClick={() => setSortOrder((current) => (current === "A-Z" ? "Z-A" : "A-Z"))} className="inline-flex items-center justify-center gap-2 rounded-2xl border border-white/10 bg-slate-900 px-4 py-3 transition hover:border-violet-300">
+                <SortAsc className="h-5 w-5" /> {sortOrder}
+              </button>
+            </div>
+          </CardContent>
+        </Card>
+
+        <div className="flex items-center justify-between px-1 text-sm text-slate-400">
+          <span>{filteredComics.length} published comic{filteredComics.length === 1 ? "" : "s"} shown</span>
+          <span>Grouped alphabetically</span>
+        </div>
+
+        <AnimatePresence mode="popLayout">
+          {Object.keys(groupedComics).length === 0 ? (
+            <motion.div key="empty" initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.98 }}>
+              <EmptyState title="No public comics found" description="Try clearing your filters or publish more comics from the admin backend." />
+            </motion.div>
+          ) : (
+            Object.entries(groupedComics).map(([letter, items], groupIndex) => (
+              <React.Fragment key={letter}>
+                {groupIndex === 1 && <GoogleAdSlot label="In-Catalog Ad" size="Responsive ad between comic sections" />}
+                <motion.section layout initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -12 }} className="rounded-[2rem] border border-white/10 bg-white/10 p-5 shadow-xl backdrop-blur">
+                  <div className="mb-4 flex items-center gap-3">
+                    <div className="grid h-11 w-11 place-items-center rounded-2xl bg-violet-300 text-xl font-black text-slate-950">{letter}</div>
+                    <div>
+                      <h2 className="text-xl font-bold text-white">{letter} titles</h2>
+                      <p className="text-sm text-slate-400">{items.length} comic{items.length === 1 ? "" : "s"}</p>
+                    </div>
+                  </div>
+                  <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+                    {items.map((comic) => (
+                      <ComicCard key={comic.id} comic={comic} onRead={onRead} />
+                    ))}
+                  </div>
+                </motion.section>
+              </React.Fragment>
+            ))
+          )}
+        </AnimatePresence>
+
+        <GoogleAdSlot label="Bottom Banner Ad" size="Footer responsive display unit" />
+      </section>
+    </div>
+  );
+}
+
+function AdminAuth({ onLogin }) {
+  const [credentials, setCredentials] = useState(() => {
+    try {
+      const saved = localStorage.getItem(adminCredentialsKey);
+      return saved ? JSON.parse(saved) : null;
+    } catch {
+      return null;
+    }
+  });
+  const [mode, setMode] = useState(credentials ? "login" : "create");
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [message, setMessage] = useState("");
+
+  const handleSubmit = (event) => {
+    event.preventDefault();
+    const cleanUsername = username.trim();
+    const cleanPassword = password.trim();
+
+    if (!cleanUsername || !cleanPassword) {
+      setMessage("Enter both a username and password.");
+      return;
+    }
+
+    if (mode === "create") {
+      const nextCredentials = { username: cleanUsername, password: cleanPassword };
+      localStorage.setItem(adminCredentialsKey, JSON.stringify(nextCredentials));
+      setCredentials(nextCredentials);
+      setUsername("");
+      setPassword("");
+      setMessage("Admin account created. Log in to continue.");
+      setMode("login");
+      return;
+    }
+
+    if (credentials?.username === cleanUsername && credentials?.password === cleanPassword) {
+      setMessage("");
+      onLogin();
+      return;
+    }
+
+    setMessage("Incorrect username or password.");
+  };
+
+  const resetCredentials = () => {
+    localStorage.removeItem(adminCredentialsKey);
+    setCredentials(null);
+    setMode("create");
+    setUsername("");
+    setPassword("");
+    setMessage("Create a new admin account.");
+  };
+
+  return (
+    <section className="mx-auto max-w-xl rounded-[2rem] border border-white/10 bg-white/10 p-8 text-center shadow-2xl backdrop-blur">
+      <div className="mx-auto mb-5 grid h-16 w-16 place-items-center rounded-3xl bg-violet-300 text-slate-950">
+        {mode === "create" ? <UserPlus className="h-8 w-8" /> : <Lock className="h-8 w-8" />}
+      </div>
+      <h1 className="text-4xl font-black text-white">{mode === "create" ? "Create Admin Account" : "Admin Login"}</h1>
+      <p className="mt-3 text-slate-300">
+        {mode === "create"
+          ? "Set the username and password for the admin backend."
+          : "Enter your admin credentials to manage comics, chapters, uploads, and publishing."}
+      </p>
+
+      <form onSubmit={handleSubmit} className="mt-6 space-y-4 text-left">
+        <label className="block space-y-2">
+          <span className="text-sm font-medium text-slate-300">Username</span>
+          <input value={username} onChange={(event) => setUsername(event.target.value)} className="w-full rounded-2xl border border-white/10 bg-slate-900 px-4 py-3 text-white outline-none transition focus:border-violet-300" />
+        </label>
+
+        <label className="block space-y-2">
+          <span className="text-sm font-medium text-slate-300">Password</span>
+          <input type="password" value={password} onChange={(event) => setPassword(event.target.value)} className="w-full rounded-2xl border border-white/10 bg-slate-900 px-4 py-3 text-white outline-none transition focus:border-violet-300" />
+        </label>
+
+        {message && <p className="rounded-2xl bg-slate-900 p-3 text-sm text-slate-300">{message}</p>}
+
+        <Button type="submit" className="w-full rounded-2xl py-6 text-base">
+          {mode === "create" ? "Create account" : "Log in"}
+        </Button>
+      </form>
+
+      <div className="mt-5 rounded-2xl bg-slate-900 p-4 text-left text-xs leading-5 text-slate-500">
+        <p className="font-semibold text-slate-300">Prototype note</p>
+        <p className="mt-1">This demo stores credentials in localStorage only. For a real website, use secure server-side authentication.</p>
+      </div>
+
+      {credentials && (
+        <button type="button" onClick={resetCredentials} className="mt-4 text-sm text-slate-400 underline underline-offset-4 hover:text-violet-200">
+          Reset admin account
+        </button>
+      )}
+    </section>
+  );
+}
+
+function AdminBackend({ comics, setComics, allGenres }) {
+  const blankForm = {
+    title: "",
+    author: "",
+    description: "",
+    genres: [],
+    newGenre: "",
+    cover: "",
+    featured: false,
+    status: "Published",
+    chapters: [],
+    newChapterTitle: "",
+  };
+
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [editingId, setEditingId] = useState(null);
+  const [adminQuery, setAdminQuery] = useState("");
+  const [form, setForm] = useState(blankForm);
+
+  const stats = useMemo(() => {
+    const published = comics.filter((comic) => comic.status === "Published").length;
+    const drafts = comics.filter((comic) => comic.status === "Draft").length;
+    const featured = comics.filter((comic) => comic.featured).length;
+    const chapters = comics.reduce((total, comic) => total + (comic.chapters?.length || 0), 0);
+    return { total: comics.length, published, drafts, featured, chapters };
+  }, [comics]);
+
+  const adminComics = useMemo(() => {
+    const q = adminQuery.trim().toLowerCase();
+    return comics
+      .filter((comic) => {
+        if (!q) return true;
+        const chapterText = (comic.chapters || []).map((chapter) => `${chapter.title} ${chapter.files.map((file) => file.name).join(" ")}`).join(" ");
+        return (
+          comic.title.toLowerCase().includes(q) ||
+          comic.author.toLowerCase().includes(q) ||
+          comic.status.toLowerCase().includes(q) ||
+          chapterText.toLowerCase().includes(q) ||
+          comic.genres.some((genre) => genre.toLowerCase().includes(q))
+        );
+      })
+      .sort((a, b) => a.title.localeCompare(b.title, undefined, { sensitivity: "base" }));
+  }, [comics, adminQuery]);
+
+  const resetForm = () => {
+    setEditingId(null);
+    setForm(blankForm);
+  };
+
+  const handleCoverUpload = (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      setForm((current) => ({ ...current, cover: reader.result }));
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleChapterUpload = async (event) => {
+    const files = Array.from(event.target.files || []);
+    if (!files.length) return;
+
+    const convertedFiles = await Promise.all(
+      files.map(async (file) => ({
+        id: crypto.randomUUID(),
+        name: file.name,
+        type: getFileType(file),
+        src: await readFileAsDataUrl(file),
+      }))
+    );
+
+    setForm((current) => {
+      const chapterNumber = current.chapters.length + 1;
+      const chapterTitle = normalizeTitle(current.newChapterTitle) || `Chapter ${chapterNumber}`;
+      return {
+        ...current,
+        chapters: [
+          ...current.chapters,
+          {
+            id: crypto.randomUUID(),
+            title: chapterTitle,
+            createdAt: todayDate(),
+            files: convertedFiles,
+          },
+        ],
+        newChapterTitle: "",
+      };
+    });
+
+    event.target.value = "";
+  };
+
+  const removeChapter = (chapterId) => {
+    setForm((current) => ({ ...current, chapters: current.chapters.filter((chapter) => chapter.id !== chapterId) }));
+  };
+
+  const removeChapterFile = (chapterId, fileId) => {
+    setForm((current) => ({
+      ...current,
+      chapters: current.chapters.map((chapter) =>
+        chapter.id === chapterId ? { ...chapter, files: chapter.files.filter((file) => file.id !== fileId) } : chapter
+      ),
+    }));
+  };
+
+  const toggleGenre = (genre) => {
+    setForm((current) => {
+      const exists = current.genres.includes(genre);
+      return {
+        ...current,
+        genres: exists ? current.genres.filter((item) => item !== genre) : [...current.genres, genre],
+      };
+    });
+  };
+
+  const addCustomGenre = () => {
+    const genre = form.newGenre.trim();
+    if (!genre) return;
+    setForm((current) => ({
+      ...current,
+      genres: current.genres.includes(genre) ? current.genres : [...current.genres, genre],
+      newGenre: "",
+    }));
+  };
+
+  const saveComic = (event) => {
+    event.preventDefault();
+    const title = normalizeTitle(form.title);
+    if (!title || form.genres.length === 0 || form.chapters.length === 0) return;
+
+    const comicPayload = {
+      title,
+      author: form.author.trim() || "Unknown creator",
+      description: form.description.trim() || "No description added yet.",
+      genres: [...form.genres].sort((a, b) => a.localeCompare(b)),
+      cover: form.cover || "https://images.unsplash.com/photo-1612036782180-6f0b6cd846fe?q=80&w=900&auto=format&fit=crop",
+      featured: form.featured,
+      status: form.status,
+      chapters: form.chapters,
+      createdAt: todayDate(),
+    };
+
+    if (editingId) {
+      setComics((current) => current.map((comic) => (comic.id === editingId ? { ...comic, ...comicPayload } : comic)));
+    } else {
+      setComics((current) => [{ id: crypto.randomUUID(), ...comicPayload }, ...current]);
+    }
+
+    resetForm();
+  };
+
+  const startEdit = (comic) => {
+    setEditingId(comic.id);
+    setForm({
+      title: comic.title,
+      author: comic.author,
+      description: comic.description,
+      genres: comic.genres,
+      newGenre: "",
+      cover: comic.cover,
+      featured: comic.featured,
+      status: comic.status,
+      chapters: comic.chapters || [],
+      newChapterTitle: "",
+    });
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
+  const deleteComic = (comicId) => {
+    setComics((current) => current.filter((comic) => comic.id !== comicId));
+    if (editingId === comicId) resetForm();
+  };
+
+  const togglePublish = (comicId) => {
+    setComics((current) =>
+      current.map((comic) =>
+        comic.id === comicId ? { ...comic, status: comic.status === "Published" ? "Draft" : "Published" } : comic
+      )
+    );
+  };
+
+  if (!isLoggedIn) {
+    return <AdminAuth onLogin={() => setIsLoggedIn(true)} />;
+  }
+
+  return (
+    <div className="grid gap-6 lg:grid-cols-[0.9fr_1.1fr]">
+      <motion.div initial={{ opacity: 0, y: 18 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.45 }} className="rounded-[2rem] border border-white/10 bg-white/10 p-6 shadow-2xl backdrop-blur">
+        <div className="mb-6 flex items-start justify-between gap-4">
+          <div>
+            <p className="mb-2 inline-flex items-center gap-2 rounded-full bg-violet-400/15 px-3 py-1 text-sm text-violet-200">
+              <LayoutDashboard className="h-4 w-4" /> Backend Dashboard
+            </p>
+            <h1 className="text-4xl font-black tracking-tight text-white">Manage comics by chapter.</h1>
+            <p className="mt-4 max-w-xl text-slate-300">Upload a cover, tag genres, then add chapters with PDF/CBZ files or image-page uploads.</p>
+          </div>
+          <button onClick={() => setIsLoggedIn(false)} className="rounded-2xl border border-white/10 bg-slate-900 p-3 text-slate-300 transition hover:border-violet-300">
+            <LogOut className="h-5 w-5" />
+          </button>
+        </div>
+
+        <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-5">
+          {[
+            ["Total", stats.total, Database],
+            ["Published", stats.published, Eye],
+            ["Drafts", stats.drafts, Pencil],
+            ["Featured", stats.featured, Star],
+            ["Chapters", stats.chapters, Layers],
+          ].map(([label, value, Icon]) => (
+            <div key={label} className="rounded-2xl border border-white/10 bg-slate-900 p-4">
+              <Icon className="mb-2 h-5 w-5 text-violet-200" />
+              <p className="text-2xl font-black text-white">{value}</p>
+              <p className="text-xs text-slate-400">{label}</p>
+            </div>
+          ))}
+        </div>
+
+        <form onSubmit={saveComic} className="space-y-5">
+          <div className="grid gap-4 sm:grid-cols-2">
+            <label className="space-y-2">
+              <span className="text-sm font-medium text-slate-300">Comic title *</span>
+              <input value={form.title} onChange={(event) => setForm((current) => ({ ...current, title: event.target.value }))} placeholder="e.g. Moonlight Market" className="w-full rounded-2xl border border-white/10 bg-slate-900 px-4 py-3 text-white outline-none transition focus:border-violet-300" />
+            </label>
+
+            <label className="space-y-2">
+              <span className="text-sm font-medium text-slate-300">Creator / author</span>
+              <input value={form.author} onChange={(event) => setForm((current) => ({ ...current, author: event.target.value }))} placeholder="Creator name" className="w-full rounded-2xl border border-white/10 bg-slate-900 px-4 py-3 text-white outline-none transition focus:border-violet-300" />
+            </label>
+          </div>
+
+          <label className="block space-y-2">
+            <span className="text-sm font-medium text-slate-300">Description</span>
+            <textarea value={form.description} onChange={(event) => setForm((current) => ({ ...current, description: event.target.value }))} placeholder="Write a short synopsis for readers." rows={4} className="w-full resize-none rounded-2xl border border-white/10 bg-slate-900 px-4 py-3 text-white outline-none transition focus:border-violet-300" />
+          </label>
+
+          <label className="group flex cursor-pointer flex-col items-center justify-center rounded-2xl border border-dashed border-white/20 bg-slate-900/80 p-5 text-center transition hover:border-violet-300">
+            <ImageIcon className="mb-2 h-7 w-7 text-violet-200" />
+            <span className="font-semibold text-white">Upload cover image</span>
+            <span className="mt-1 text-xs text-slate-400">PNG, JPG, WEBP</span>
+            <input type="file" accept="image/*" onChange={handleCoverUpload} className="hidden" />
+          </label>
+
+          {(form.cover || form.title) && (
+            <div className="rounded-2xl border border-white/10 bg-slate-900 p-4">
+              <p className="mb-3 text-sm font-semibold text-slate-300">Comic preview</p>
+              <div className="flex items-center gap-4">
+                <img src={form.cover || "https://images.unsplash.com/photo-1612036782180-6f0b6cd846fe?q=80&w=900&auto=format&fit=crop"} alt="Cover preview" className="h-20 w-16 rounded-xl object-cover" />
+                <div>
+                  <p className="font-medium text-white">{form.title || "Untitled comic"}</p>
+                  <p className="text-sm text-slate-400">{form.chapters.length} chapter{form.chapters.length === 1 ? "" : "s"} added</p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          <div className="grid gap-4 sm:grid-cols-2">
+            <label className="space-y-2">
+              <span className="text-sm font-medium text-slate-300">Visibility</span>
+              <select value={form.status} onChange={(event) => setForm((current) => ({ ...current, status: event.target.value }))} className="w-full rounded-2xl border border-white/10 bg-slate-900 px-4 py-3 text-white outline-none transition focus:border-violet-300">
+                <option>Published</option>
+                <option>Draft</option>
+              </select>
+            </label>
+
+            <label className="flex items-center gap-3 rounded-2xl border border-white/10 bg-slate-900 px-4 py-3 text-slate-300">
+              <input type="checkbox" checked={form.featured} onChange={(event) => setForm((current) => ({ ...current, featured: event.target.checked }))} className="h-5 w-5 accent-violet-300" />
+              Feature on landing page
+            </label>
+          </div>
+
+          <div className="space-y-3 rounded-[2rem] border border-white/10 bg-slate-900/60 p-4">
+            <div>
+              <p className="inline-flex items-center gap-2 text-sm font-semibold text-slate-200">
+                <Layers className="h-4 w-4" /> Chapter uploads *
+              </p>
+              <p className="mt-1 text-xs text-slate-500">Add one chapter at a time. Each chapter can contain a PDF, CBZ/ZIP archive, or multiple image pages.</p>
+            </div>
+
+            <div className="grid gap-3 sm:grid-cols-[1fr_auto]">
+              <input value={form.newChapterTitle} onChange={(event) => setForm((current) => ({ ...current, newChapterTitle: event.target.value }))} placeholder={`Chapter title, e.g. Chapter ${form.chapters.length + 1}`} className="rounded-2xl border border-white/10 bg-slate-950 px-4 py-3 text-white outline-none transition focus:border-violet-300" />
+              <label className="inline-flex cursor-pointer items-center justify-center gap-2 rounded-2xl bg-violet-300 px-5 py-3 font-semibold text-slate-950 transition hover:bg-violet-200">
+                <Upload className="h-4 w-4" /> Upload chapter
+                <input type="file" multiple accept="image/*,.pdf,.cbz,.cbr,.zip" onChange={handleChapterUpload} className="hidden" />
+              </label>
+            </div>
+
+            {form.chapters.length === 0 ? (
+              <p className="rounded-2xl border border-dashed border-white/10 p-4 text-sm text-slate-500">No chapters added yet. Add at least one chapter before saving.</p>
+            ) : (
+              <div className="space-y-3">
+                {form.chapters.map((chapter, index) => (
+                  <div key={chapter.id} className="rounded-2xl border border-white/10 bg-slate-950 p-4">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="font-semibold text-white">{index + 1}. {chapter.title}</p>
+                        <p className="text-xs text-slate-500">{chapter.files.length} uploaded file{chapter.files.length === 1 ? "" : "s"}</p>
+                      </div>
+                      <button type="button" onClick={() => removeChapter(chapter.id)} className="rounded-xl border border-white/10 p-2 text-slate-400 transition hover:border-red-300 hover:text-red-200">
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    </div>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {chapter.files.map((file) => (
+                        <span key={file.id} className="inline-flex items-center gap-2 rounded-full bg-white/5 px-3 py-2 text-xs text-slate-300">
+                          {file.type === "Image" ? <ImageIcon className="h-3.5 w-3.5" /> : <FileText className="h-3.5 w-3.5" />}
+                          {file.name}
+                          <button type="button" onClick={() => removeChapterFile(chapter.id, file.id)} className="text-slate-500 hover:text-red-200">
+                            <X className="h-3.5 w-3.5" />
+                          </button>
+                        </span>
+                      ))}
+                    </div>
+                    {chapter.files.some((file) => file.type === "Image" && file.src) && (
+                      <div className="mt-3 grid grid-cols-3 gap-2">
+                        {chapter.files.filter((file) => file.type === "Image" && file.src).slice(0, 6).map((file) => (
+                          <img key={file.id} src={file.src} alt={file.name} className="h-24 rounded-xl object-cover" />
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="space-y-3">
+            <div className="flex items-center justify-between gap-3">
+              <span className="inline-flex items-center gap-2 text-sm font-medium text-slate-300">
+                <Tags className="h-4 w-4" /> Genres *
+              </span>
+              <span className="text-xs text-slate-500">Select one or more</span>
+            </div>
+
+            <div className="flex flex-wrap gap-2">
+              {allGenres.map((genre) => {
+                const active = form.genres.includes(genre);
+                return (
+                  <button type="button" key={genre} onClick={() => toggleGenre(genre)} className={`rounded-full border px-3 py-2 text-sm transition ${active ? "border-violet-300 bg-violet-300 text-slate-950" : "border-white/10 bg-slate-900 text-slate-300 hover:border-violet-300"}`}>
+                    {genre}
+                  </button>
+                );
+              })}
+            </div>
+
+            <div className="flex gap-2">
+              <input value={form.newGenre} onChange={(event) => setForm((current) => ({ ...current, newGenre: event.target.value }))} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); addCustomGenre(); } }} placeholder="Add custom genre" className="min-w-0 flex-1 rounded-2xl border border-white/10 bg-slate-900 px-4 py-3 text-white outline-none transition focus:border-violet-300" />
+              <Button type="button" onClick={addCustomGenre} className="rounded-2xl px-4">
+                <Plus className="mr-2 h-4 w-4" /> Add
+              </Button>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap gap-3 pt-2">
+            <Button type="submit" className="rounded-2xl px-5 py-6 text-base">
+              {editingId ? "Save changes" : "Upload comic"}
+            </Button>
+            {editingId && (
+              <Button type="button" variant="secondary" onClick={resetForm} className="rounded-2xl px-5 py-6 text-base">
+                <X className="mr-2 h-4 w-4" /> Cancel edit
+              </Button>
+            )}
+          </div>
+        </form>
+      </motion.div>
+
+      <motion.div initial={{ opacity: 0, y: 18 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.45, delay: 0.08 }} className="space-y-5">
+        <Card className="rounded-[2rem] border-white/10 bg-white/10 text-white shadow-2xl backdrop-blur">
+          <CardContent className="p-5">
+            <div className="relative">
+              <Search className="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400" />
+              <input value={adminQuery} onChange={(event) => setAdminQuery(event.target.value)} placeholder="Search backend records, chapters, or files..." className="w-full rounded-2xl border border-white/10 bg-slate-900 py-3 pl-12 pr-4 text-white outline-none transition focus:border-violet-300" />
+            </div>
+          </CardContent>
+        </Card>
+
+        <AnimatePresence mode="popLayout">
+          {adminComics.length === 0 ? (
+            <motion.div key="empty-admin" initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.98 }}>
+              <EmptyState title="No backend records found" description="Upload a comic or clear the admin search field." />
+            </motion.div>
+          ) : (
+            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-2">
+              {adminComics.map((comic) => (
+                <ComicCard
+                  key={comic.id}
+                  comic={comic}
+                  adminActions={
+                    <>
+                      <Button type="button" variant="secondary" onClick={() => startEdit(comic)} className="flex-1 rounded-2xl">
+                        <Pencil className="mr-2 h-4 w-4" /> Edit
+                      </Button>
+                      <Button type="button" variant="secondary" onClick={() => togglePublish(comic.id)} className="rounded-2xl">
+                        {comic.status === "Published" ? "Unpublish" : "Publish"}
+                      </Button>
+                      <Button type="button" variant="destructive" onClick={() => deleteComic(comic.id)} className="rounded-2xl">
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </>
+                  }
+                />
+              ))}
+            </div>
+          )}
+        </AnimatePresence>
+      </motion.div>
+    </div>
+  );
+}
+
+function ComicReaderModal({ comic, onClose }) {
+  const [activeChapterId, setActiveChapterId] = useState(null);
+
+  useEffect(() => {
+    if (comic?.chapters?.length) {
+      setActiveChapterId(comic.chapters[0].id);
+    }
+  }, [comic]);
+
+  if (!comic) return null;
+
+  const chapters = comic.chapters || [];
+  const activeChapter = chapters.find((chapter) => chapter.id === activeChapterId) || chapters[0];
+  const imageFiles = activeChapter?.files.filter((file) => file.type === "Image" && file.src) || [];
+  const documentFiles = activeChapter?.files.filter((file) => file.type !== "Image" || !file.src) || [];
+
+  return (
+    <div className="fixed inset-0 z-50 grid place-items-center bg-slate-950/80 p-4 backdrop-blur">
+      <motion.div initial={{ opacity: 0, scale: 0.96 }} animate={{ opacity: 1, scale: 1 }} className="max-h-[90vh] w-full max-w-6xl overflow-auto rounded-[2rem] border border-white/10 bg-slate-900 shadow-2xl">
+        <div className="sticky top-0 z-10 flex items-center justify-between border-b border-white/10 bg-slate-900/95 p-4 backdrop-blur">
+          <div>
+            <h2 className="text-xl font-black text-white">{comic.title}</h2>
+            <p className="text-sm text-slate-400">{chapters.length} chapter{chapters.length === 1 ? "" : "s"}</p>
+          </div>
+          <button onClick={onClose} className="rounded-2xl border border-white/10 p-3 text-slate-300 transition hover:border-violet-300">
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+
+        <div className="grid gap-6 p-6 lg:grid-cols-[0.35fr_0.65fr]">
+          <aside className="space-y-4">
+            <img src={comic.cover} alt={comic.title} className="w-full rounded-3xl object-cover" />
+            <div>
+              <p className="text-sm text-slate-400">Creator</p>
+              <p className="text-lg font-bold text-white">{comic.author}</p>
+            </div>
+            <p className="leading-7 text-slate-300">{comic.description}</p>
+            <div className="flex flex-wrap gap-2">
+              {comic.genres.map((genre) => (
+                <span key={genre} className="rounded-full bg-violet-300/15 px-3 py-1 text-xs text-violet-100">{genre}</span>
+              ))}
+            </div>
+          </aside>
+
+          <section className="space-y-4">
+            <div className="rounded-3xl border border-white/10 bg-white/5 p-4">
+              <p className="mb-3 inline-flex items-center gap-2 font-semibold text-white">
+                <Layers className="h-4 w-4" /> Chapters
+              </p>
+              {chapters.length === 0 ? (
+                <p className="text-sm text-slate-400">No chapters uploaded yet.</p>
+              ) : (
+                <div className="flex flex-wrap gap-2">
+                  {chapters.map((chapter, index) => (
+                    <button key={chapter.id} onClick={() => setActiveChapterId(chapter.id)} className={`rounded-2xl border px-4 py-3 text-sm transition ${activeChapter?.id === chapter.id ? "border-violet-300 bg-violet-300 text-slate-950" : "border-white/10 bg-slate-950 text-slate-300 hover:border-violet-300"}`}>
+                      {index + 1}. {chapter.title}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {activeChapter && (
+              <div className="rounded-3xl border border-white/10 bg-white/5 p-4">
+                <h3 className="text-xl font-black text-white">{activeChapter.title}</h3>
+                <p className="mt-1 text-sm text-slate-400">{activeChapter.files.length} file{activeChapter.files.length === 1 ? "" : "s"} in this chapter</p>
+
+                {documentFiles.length > 0 && (
+                  <div className="mt-4 space-y-2">
+                    <p className="text-sm font-semibold text-slate-300">Chapter files</p>
+                    {documentFiles.map((file) => (
+                      <div key={file.id} className="flex items-center justify-between rounded-2xl border border-white/10 bg-slate-950 p-3">
+                        <span className="inline-flex min-w-0 items-center gap-2 text-sm text-slate-300">
+                          <FileText className="h-4 w-4 shrink-0" />
+                          <span className="truncate">{file.name}</span>
+                        </span>
+                        <span className="rounded-full bg-violet-300/15 px-3 py-1 text-xs text-violet-100">{file.type}</span>
+                      </div>
+                    ))}
+                    <p className="text-xs text-slate-500">PDF/CBZ/ZIP files are listed here. In production, these would open in a reader or download from storage.</p>
+                  </div>
+                )}
+
+                {imageFiles.length > 0 && (
+                  <div className="mt-4 space-y-4">
+                    <p className="text-sm font-semibold text-slate-300">Image pages</p>
+                    {imageFiles.map((file, index) => (
+                      <figure key={file.id} className="overflow-hidden rounded-3xl border border-white/10 bg-slate-950">
+                        <img src={file.src} alt={file.name} className="w-full object-contain" />
+                        <figcaption className="border-t border-white/10 px-4 py-3 text-xs text-slate-400">Page {index + 1}: {file.name}</figcaption>
+                      </figure>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </section>
+        </div>
+      </motion.div>
+    </div>
+  );
+}
+
+export default function ComicPortalWebsite() {
+  const [activeView, setActiveView] = useState(() => (pathIsAdmin() ? "admin" : "customer"));
+  const [comics, setComics] = useState(() => {
+    try {
+      const saved = localStorage.getItem(storageKey);
+      return saved ? JSON.parse(saved) : starterComics;
+    } catch {
+      return starterComics;
+    }
+  });
+  const [selectedGenre, setSelectedGenre] = useState("All");
+  const [query, setQuery] = useState("");
+  const [sortOrder, setSortOrder] = useState("A-Z");
+  const [readerComic, setReaderComic] = useState(null);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+
+  useEffect(() => {
+    localStorage.setItem(storageKey, JSON.stringify(comics));
+  }, [comics]);
+
+  useEffect(() => {
+    const handleRouteChange = () => setActiveView(pathIsAdmin() ? "admin" : "customer");
+    window.addEventListener("popstate", handleRouteChange);
+    return () => window.removeEventListener("popstate", handleRouteChange);
+  }, []);
+
+  const allGenres = useMemo(() => uniqueGenres(comics), [comics]);
+
+  return (
+    <main className="min-h-screen bg-slate-950 text-white">
+      <header className="sticky top-0 z-40 border-b border-white/10 bg-slate-950/85 backdrop-blur">
+        <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-4 sm:px-6 lg:px-8">
+          <button onClick={() => navigateTo("/")} className="flex items-center gap-3 text-left">
+            <div className="grid h-11 w-11 place-items-center rounded-2xl bg-violet-300 text-slate-950">
+              <BookOpen className="h-6 w-6" />
+            </div>
+            <div>
+              <p className="text-lg font-black leading-none">PanelPop</p>
+              <p className="text-xs text-slate-400">Comic portal</p>
+            </div>
+          </button>
+
+          <nav className="hidden gap-3 md:flex">
+            <button className="inline-flex items-center gap-2 rounded-2xl bg-violet-300 px-4 py-3 text-sm font-semibold text-slate-950 transition hover:bg-violet-200" onClick={() => navigateTo("/")}> 
+              <Home className="h-4 w-4" /> Customer Site
+            </button>
+          </nav>
+
+          <button className="rounded-2xl border border-white/10 p-3 text-slate-300 md:hidden" onClick={() => setMobileMenuOpen((current) => !current)}>
+            <Menu className="h-5 w-5" />
+          </button>
+        </div>
+
+        {mobileMenuOpen && (
+          <div className="mx-auto flex max-w-7xl gap-3 px-4 pb-4 sm:px-6 lg:px-8 md:hidden">
+            <button className="inline-flex items-center gap-2 rounded-2xl bg-violet-300 px-4 py-3 text-sm font-semibold text-slate-950" onClick={() => { navigateTo("/"); setMobileMenuOpen(false); }}>
+              <Home className="h-4 w-4" /> Customer
+            </button>
+          </div>
+        )}
+      </header>
+
+      <section className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
+        {activeView === "customer" ? (
+          <CustomerLanding comics={comics} allGenres={allGenres} selectedGenre={selectedGenre} setSelectedGenre={setSelectedGenre} query={query} setQuery={setQuery} sortOrder={sortOrder} setSortOrder={setSortOrder} onRead={setReaderComic} />
+        ) : (
+          <AdminBackend comics={comics} setComics={setComics} allGenres={allGenres} />
+        )}
+      </section>
+
+      <footer className="mx-auto max-w-7xl px-4 pb-8 text-sm text-slate-500 sm:px-6 lg:px-8">
+        <div className="rounded-[2rem] border border-white/10 bg-white/5 p-5">
+          <p className="flex items-center gap-2">
+            <Users className="h-4 w-4" /> Customer site is public. Admin access is available at /admin. Prototype chapter data, image pages, and demo credentials are saved in localStorage.
+          </p>
+        </div>
+      </footer>
+
+      <ComicReaderModal comic={readerComic} onClose={() => setReaderComic(null)} />
+    </main>
+  );
+}
