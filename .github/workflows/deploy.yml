@@ -19,9 +19,9 @@ jobs:
     runs-on: ubuntu-latest
 
     env:
-      VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
-      VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
-      VITE_ADMIN_EMAILS: ${{ secrets.VITE_ADMIN_EMAILS }}
+      VITE_SUPABASE_URL: https://szvqkzqzojleqkcukvnl.supabase.co
+      VITE_SUPABASE_ANON_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InN6dnFrenF6b2psZXFrY3Vrdm5sIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzg1MTI2NzMsImV4cCI6MjA5NDA4ODY3M30.DdxoVzuWN6w51qq-MsurdCz6A_Cmib5Zi59oIWgzcQE
+      VITE_ADMIN_EMAILS: dlukematthew@gmail.com
 
     steps:
       - name: Checkout
