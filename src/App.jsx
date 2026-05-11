@@ -259,7 +259,7 @@ function ComicCard({ comic, onRead, adminActions }) {
           <p className="text-sm text-slate-400">by {comic.author}</p>
           {comic.alternativeTitles?.length > 0 && (
             <p className="mt-1 line-clamp-1 text-xs text-slate-500">Also known as: {comic.alternativeTitles.join(", ")}</p>
-          )
+          )}
         </div>
         <p className="line-clamp-3 min-h-[4.5rem] text-sm leading-6 text-slate-300">{comic.description}</p>
         <div className="flex flex-wrap gap-2">
@@ -726,8 +726,7 @@ function AdminBackend({ comics, setComics, allGenres }) {
       description: form.description.trim() || "No description added yet.",
       genres: [...form.genres].sort((a, b) => a.localeCompare(b)),
       alternativeTitles: form.alternativeTitlesText
-        .split("
-")
+        .split(String.fromCharCode(10))
         .map((title) => normalizeTitle(title))
         .filter(Boolean),
       cover: form.cover || "https://images.unsplash.com/photo-1612036782180-6f0b6cd846fe?q=80&w=900&auto=format&fit=crop",
@@ -754,8 +753,7 @@ function AdminBackend({ comics, setComics, allGenres }) {
       description: comic.description,
       genres: comic.genres,
       newGenre: "",
-      alternativeTitlesText: (comic.alternativeTitles || []).join("
-"),
+      alternativeTitlesText: (comic.alternativeTitles || []).join(String.fromCharCode(10)),
       cover: comic.cover,
       featured: comic.featured,
       status: comic.status,
@@ -837,9 +835,7 @@ function AdminBackend({ comics, setComics, allGenres }) {
             <textarea
               value={form.alternativeTitlesText}
               onChange={(event) => setForm((current) => ({ ...current, alternativeTitlesText: event.target.value }))}
-              placeholder={"Add one alternative title per line, e.g.
-Moon Market
-Lunar Bazaar"}
+              placeholder={['Add one alternative title per line, e.g.', 'Moon Market', 'Lunar Bazaar'].join(String.fromCharCode(10))}
               rows={3}
               className="w-full resize-none rounded-2xl border border-white/10 bg-slate-900 px-4 py-3 text-white outline-none transition focus:border-violet-300"
             />
@@ -861,9 +857,8 @@ Lunar Bazaar"}
                   <p className="font-medium text-white">{form.title || "Untitled comic"}</p>
                   <p className="text-sm text-slate-400">{form.chapters.length} chapter{form.chapters.length === 1 ? "" : "s"} added</p>
                   {form.alternativeTitlesText.trim() && (
-                    <p className="mt-1 line-clamp-1 text-xs text-slate-500">Also known as: {form.alternativeTitlesText.split("
-").map((title) => normalizeTitle(title)).filter(Boolean).join(", ")}</p>
-                  )
+                    <p className="mt-1 line-clamp-1 text-xs text-slate-500">Also known as: {form.alternativeTitlesText.split(String.fromCharCode(10)).map((title) => normalizeTitle(title)).filter(Boolean).join(", ")}</p>
+                  )}
                 </div>
               </div>
             </div>
@@ -1060,7 +1055,7 @@ function ComicReaderModal({ comic, onClose }) {
               <p className="text-lg font-bold text-white">{comic.author}</p>
               {comic.alternativeTitles?.length > 0 && (
                 <p className="mt-1 text-sm text-slate-400">Also known as: {comic.alternativeTitles.join(", ")}</p>
-              )
+              )}
             </div>
             <p className="leading-7 text-slate-300">{comic.description}</p>
             <div className="flex flex-wrap gap-2">
