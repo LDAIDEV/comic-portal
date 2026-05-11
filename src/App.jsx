@@ -25,12 +25,29 @@ import {
   Layers,
   Megaphone,
   UserPlus,
+  Sun,
+  Moon,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { createClient } from "@supabase/supabase-js";
 
 const storageKey = "comic_portal_library_v2";
-const adminCredentialsKey = "comic_portal_admin_credentials_v1";
+
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+const adminEmails = (import.meta.env.VITE_ADMIN_EMAILS || "")
+  .split(",")
+  .map((email) => email.trim().toLowerCase())
+  .filter(Boolean);
+
+const supabase = supabaseUrl && supabaseAnonKey ? createClient(supabaseUrl, supabaseAnonKey) : null;
+
+function isAllowedAdmin(email) {
+  if (!email) return false;
+  if (adminEmails.length === 0) return true;
+  return adminEmails.includes(email.toLowerCase());
+}
 
 const defaultGenres = [
   "Action",
@@ -157,7 +174,9 @@ function pathIsAdmin() {
 }
 
 function navigateTo(path) {
-  window.history.pushState({}, "", path);
+  const basePath = import.meta.env.BASE_URL || "/";
+  const targetPath = path === "/" ? basePath : path;
+  window.history.pushState({}, "", targetPath);
   window.dispatchEvent(new PopStateEvent("popstate"));
 }
 
@@ -384,57 +403,114 @@ function CustomerLanding({ comics, allGenres, selectedGenre, setSelectedGenre, q
 }
 
 function AdminAuth({ onLogin }) {
-  const [credentials, setCredentials] = useState(() => {
-    try {
-      const saved = localStorage.getItem(adminCredentialsKey);
-      return saved ? JSON.parse(saved) : null;
-    } catch {
-      return null;
-    }
-  });
-  const [mode, setMode] = useState(credentials ? "login" : "create");
-  const [username, setUsername] = useState("");
+  const [mode, setMode] = useState("login");
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [message, setMessage] = useState("");
+  const [loading, setLoading] = useState(false);
 
-  const handleSubmit = (event) => {
+  useEffect(() => {
+    if (!supabase) return;
+
+    supabase.auth.getSession().then(({ data }) => {
+      const userEmail = data.session?.user?.email || "";
+      if (data.session?.user && isAllowedAdmin(userEmail)) {
+        onLogin();
+      } else if (data.session?.user && !isAllowedAdmin(userEmail)) {
+        setMessage("You are signed in, but this email is not authorized as an admin.");
+      }
+    });
+
+    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
+      const userEmail = session?.user?.email || "";
+      if (session?.user && isAllowedAdmin(userEmail)) {
+        onLogin();
+      } else if (session?.user && !isAllowedAdmin(userEmail)) {
+        setMessage("You are signed in, but this email is not authorized as an admin.");
+      }
+    });
+
+    return () => listener.subscription.unsubscribe();
+  }, [onLogin]);
+
+  const handleSubmit = async (event) => {
     event.preventDefault();
-    const cleanUsername = username.trim();
+    setMessage("");
+
+    if (!supabase) {
+      setMessage("Supabase is not configured yet. Add your VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY first.");
+      return;
+    }
+
+    const cleanEmail = email.trim().toLowerCase();
     const cleanPassword = password.trim();
 
-    if (!cleanUsername || !cleanPassword) {
-      setMessage("Enter both a username and password.");
+    if (!cleanEmail || !cleanPassword) {
+      setMessage("Enter both an email and password.");
       return;
     }
+
+    if (!isAllowedAdmin(cleanEmail)) {
+      setMessage("This email is not listed in VITE_ADMIN_EMAILS, so it cannot access the admin backend.");
+      return;
+    }
+
+    setLoading(true);
 
     if (mode === "create") {
-      const nextCredentials = { username: cleanUsername, password: cleanPassword };
-      localStorage.setItem(adminCredentialsKey, JSON.stringify(nextCredentials));
-      setCredentials(nextCredentials);
-      setUsername("");
-      setPassword("");
-      setMessage("Admin account created. Log in to continue.");
-      setMode("login");
+      const { data, error } = await supabase.auth.signUp({
+        email: cleanEmail,
+        password: cleanPassword,
+      });
+
+      setLoading(false);
+
+      if (error) {
+        setMessage(error.message);
+        return;
+      }
+
+      if (data.session) {
+        onLogin();
+      } else {
+        setMessage("Account created. Check your email to confirm the account, then log in.");
+        setMode("login");
+      }
       return;
     }
 
-    if (credentials?.username === cleanUsername && credentials?.password === cleanPassword) {
-      setMessage("");
-      onLogin();
+    const { error } = await supabase.auth.signInWithPassword({
+      email: cleanEmail,
+      password: cleanPassword,
+    });
+
+    setLoading(false);
+
+    if (error) {
+      setMessage(error.message);
       return;
     }
 
-    setMessage("Incorrect username or password.");
+    onLogin();
   };
 
-  const resetCredentials = () => {
-    localStorage.removeItem(adminCredentialsKey);
-    setCredentials(null);
-    setMode("create");
-    setUsername("");
-    setPassword("");
-    setMessage("Create a new admin account.");
-  };
+  if (!supabase) {
+    return (
+      <section className="mx-auto max-w-xl rounded-[2rem] border border-white/10 bg-white/10 p-8 text-center shadow-2xl backdrop-blur">
+        <div className="mx-auto mb-5 grid h-16 w-16 place-items-center rounded-3xl bg-violet-300 text-slate-950">
+          <Lock className="h-8 w-8" />
+        </div>
+        <h1 className="text-4xl font-black text-white">Connect Supabase Auth</h1>
+        <p className="mt-3 text-slate-300">Admin authentication now uses Supabase. Add your Supabase URL and anon key to your environment variables, then restart the app.</p>
+        <div className="mt-6 rounded-2xl bg-slate-900 p-4 text-left text-sm leading-6 text-slate-400">
+          <p className="font-semibold text-slate-200">Required variables</p>
+          <p className="mt-1">VITE_SUPABASE_URL</p>
+          <p>VITE_SUPABASE_ANON_KEY</p>
+          <p>VITE_ADMIN_EMAILS</p>
+        </div>
+      </section>
+    );
+  }
 
   return (
     <section className="mx-auto max-w-xl rounded-[2rem] border border-white/10 bg-white/10 p-8 text-center shadow-2xl backdrop-blur">
@@ -444,14 +520,14 @@ function AdminAuth({ onLogin }) {
       <h1 className="text-4xl font-black text-white">{mode === "create" ? "Create Admin Account" : "Admin Login"}</h1>
       <p className="mt-3 text-slate-300">
         {mode === "create"
-          ? "Set the username and password for the admin backend."
-          : "Enter your admin credentials to manage comics, chapters, uploads, and publishing."}
+          ? "Create an admin account using Supabase email/password authentication."
+          : "Log in with the admin email and password stored in Supabase Auth."}
       </p>
 
       <form onSubmit={handleSubmit} className="mt-6 space-y-4 text-left">
         <label className="block space-y-2">
-          <span className="text-sm font-medium text-slate-300">Username</span>
-          <input value={username} onChange={(event) => setUsername(event.target.value)} className="w-full rounded-2xl border border-white/10 bg-slate-900 px-4 py-3 text-white outline-none transition focus:border-violet-300" />
+          <span className="text-sm font-medium text-slate-300">Admin email</span>
+          <input type="email" value={email} onChange={(event) => setEmail(event.target.value)} className="w-full rounded-2xl border border-white/10 bg-slate-900 px-4 py-3 text-white outline-none transition focus:border-violet-300" />
         </label>
 
         <label className="block space-y-2">
@@ -461,21 +537,19 @@ function AdminAuth({ onLogin }) {
 
         {message && <p className="rounded-2xl bg-slate-900 p-3 text-sm text-slate-300">{message}</p>}
 
-        <Button type="submit" className="w-full rounded-2xl py-6 text-base">
-          {mode === "create" ? "Create account" : "Log in"}
+        <Button type="submit" disabled={loading} className="w-full rounded-2xl py-6 text-base">
+          {loading ? "Please wait..." : mode === "create" ? "Create account" : "Log in"}
         </Button>
       </form>
 
-      <div className="mt-5 rounded-2xl bg-slate-900 p-4 text-left text-xs leading-5 text-slate-500">
-        <p className="font-semibold text-slate-300">Prototype note</p>
-        <p className="mt-1">This demo stores credentials in localStorage only. For a real website, use secure server-side authentication.</p>
-      </div>
+      <button type="button" onClick={() => { setMode(mode === "create" ? "login" : "create"); setMessage(""); }} className="mt-4 text-sm text-slate-400 underline underline-offset-4 hover:text-violet-200">
+        {mode === "create" ? "Already have an account? Log in" : "Need to create the admin account?"}
+      </button>
 
-      {credentials && (
-        <button type="button" onClick={resetCredentials} className="mt-4 text-sm text-slate-400 underline underline-offset-4 hover:text-violet-200">
-          Reset admin account
-        </button>
-      )}
+      <div className="mt-5 rounded-2xl bg-slate-900 p-4 text-left text-xs leading-5 text-slate-500">
+        <p className="font-semibold text-slate-300">Security note</p>
+        <p className="mt-1">For the deployed site, set VITE_ADMIN_EMAILS to the email addresses allowed to access the admin backend. Database and file uploads should also be protected with backend rules before launch.</p>
+      </div>
     </section>
   );
 }
@@ -677,7 +751,7 @@ function AdminBackend({ comics, setComics, allGenres }) {
             <h1 className="text-4xl font-black tracking-tight text-white">Manage comics by chapter.</h1>
             <p className="mt-4 max-w-xl text-slate-300">Upload a cover, tag genres, then add chapters with PDF/CBZ files or image-page uploads.</p>
           </div>
-          <button onClick={() => setIsLoggedIn(false)} className="rounded-2xl border border-white/10 bg-slate-900 p-3 text-slate-300 transition hover:border-violet-300">
+          <button onClick={async () => { await supabase?.auth.signOut(); setIsLoggedIn(false); }} className="rounded-2xl border border-white/10 bg-slate-900 p-3 text-slate-300 transition hover:border-violet-300">
             <LogOut className="h-5 w-5" />
           </button>
         </div>
@@ -995,6 +1069,7 @@ function ComicReaderModal({ comic, onClose }) {
 
 export default function ComicPortalWebsite() {
   const [activeView, setActiveView] = useState(() => (pathIsAdmin() ? "admin" : "customer"));
+  const [theme, setTheme] = useState(() => localStorage.getItem("comic_portal_theme") || "dark");
   const [comics, setComics] = useState(() => {
     try {
       const saved = localStorage.getItem(storageKey);
@@ -1014,6 +1089,11 @@ export default function ComicPortalWebsite() {
   }, [comics]);
 
   useEffect(() => {
+    localStorage.setItem("comic_portal_theme", theme);
+    document.documentElement.classList.toggle("light-theme", theme === "light");
+  }, [theme]);
+
+  useEffect(() => {
     const handleRouteChange = () => setActiveView(pathIsAdmin() ? "admin" : "customer");
     window.addEventListener("popstate", handleRouteChange);
     return () => window.removeEventListener("popstate", handleRouteChange);
@@ -1022,7 +1102,18 @@ export default function ComicPortalWebsite() {
   const allGenres = useMemo(() => uniqueGenres(comics), [comics]);
 
   return (
-    <main className="min-h-screen bg-slate-950 text-white">
+    <main className={`min-h-screen transition-colors ${theme === "dark" ? "bg-slate-950 text-white" : "bg-slate-100 text-slate-950"}`}>
+      <style>{`
+        .light-theme .bg-slate-950 { background-color: rgb(241 245 249) !important; }
+        .light-theme .bg-slate-900 { background-color: rgb(255 255 255) !important; }
+        .light-theme .bg-slate-800 { background-color: rgb(226 232 240) !important; }
+        .light-theme .bg-white\/10, .light-theme .bg-white\/5 { background-color: rgb(255 255 255) !important; }
+        .light-theme .text-white { color: rgb(15 23 42) !important; }
+        .light-theme .text-slate-300, .light-theme .text-slate-400, .light-theme .text-slate-500 { color: rgb(71 85 105) !important; }
+        .light-theme .border-white\/10, .light-theme .border-white\/20 { border-color: rgb(203 213 225) !important; }
+        .light-theme input, .light-theme textarea, .light-theme select { background-color: rgb(255 255 255) !important; color: rgb(15 23 42) !important; }
+        .light-theme .shadow-2xl, .light-theme .shadow-xl, .light-theme .shadow-lg { box-shadow: 0 20px 45px rgb(15 23 42 / 0.12) !important; }
+      `}</style>
       <header className="sticky top-0 z-40 border-b border-white/10 bg-slate-950/85 backdrop-blur">
         <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-4 sm:px-6 lg:px-8">
           <button onClick={() => navigateTo("/")} className="flex items-center gap-3 text-left">
@@ -1039,6 +1130,10 @@ export default function ComicPortalWebsite() {
             <button className="inline-flex items-center gap-2 rounded-2xl bg-violet-300 px-4 py-3 text-sm font-semibold text-slate-950 transition hover:bg-violet-200" onClick={() => navigateTo("/")}> 
               <Home className="h-4 w-4" /> Customer Site
             </button>
+            <button className="inline-flex items-center gap-2 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-semibold text-slate-300 transition hover:border-violet-300" onClick={() => setTheme((current) => (current === "dark" ? "light" : "dark"))}>
+              {theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+              {theme === "dark" ? "Light Mode" : "Dark Mode"}
+            </button>
           </nav>
 
           <button className="rounded-2xl border border-white/10 p-3 text-slate-300 md:hidden" onClick={() => setMobileMenuOpen((current) => !current)}>
@@ -1051,6 +1146,10 @@ export default function ComicPortalWebsite() {
             <button className="inline-flex items-center gap-2 rounded-2xl bg-violet-300 px-4 py-3 text-sm font-semibold text-slate-950" onClick={() => { navigateTo("/"); setMobileMenuOpen(false); }}>
               <Home className="h-4 w-4" /> Customer
             </button>
+            <button className="inline-flex items-center gap-2 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-semibold text-slate-300" onClick={() => setTheme((current) => (current === "dark" ? "light" : "dark"))}>
+              {theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+              {theme === "dark" ? "Light" : "Dark"}
+            </button>
           </div>
         )}
       </header>
@@ -1062,14 +1161,6 @@ export default function ComicPortalWebsite() {
           <AdminBackend comics={comics} setComics={setComics} allGenres={allGenres} />
         )}
       </section>
-
-      <footer className="mx-auto max-w-7xl px-4 pb-8 text-sm text-slate-500 sm:px-6 lg:px-8">
-        <div className="rounded-[2rem] border border-white/10 bg-white/5 p-5">
-          <p className="flex items-center gap-2">
-            <Users className="h-4 w-4" /> Customer site is public. Admin access is available at /admin. Prototype chapter data, image pages, and demo credentials are saved in localStorage.
-          </p>
-        </div>
-      </footer>
 
       <ComicReaderModal comic={readerComic} onClose={() => setReaderComic(null)} />
     </main>
