@@ -67,6 +67,7 @@ const starterComics = [
   {
     id: "comic-azure-knights",
     title: "Azure Knights",
+    alternativeTitles: ["Skybound Knights", "Knights of Azure"],
     author: "Mika Vale",
     genres: ["Fantasy", "Adventure"],
     description: "A band of sky-guardians protects floating kingdoms from ancient machines.",
@@ -92,6 +93,7 @@ const starterComics = [
   {
     id: "comic-neon-alley",
     title: "Neon Alley",
+    alternativeTitles: ["Neon Backstreet", "Memory Courier"],
     author: "Jon Reyes",
     genres: ["Sci-Fi", "Mystery"],
     description: "A courier follows a glowing trail through a city that rewrites memories.",
@@ -111,6 +113,7 @@ const starterComics = [
   {
     id: "comic-paper-heart-club",
     title: "Paper Heart Club",
+    alternativeTitles: ["Letter Hearts", "The Paper Hearts"],
     author: "Lina Song",
     genres: ["Romance", "Slice of Life"],
     description: "Four friends run a letter-writing booth and discover everyone has a secret.",
@@ -254,6 +257,9 @@ function ComicCard({ comic, onRead, adminActions }) {
         <div>
           <h3 className="line-clamp-1 text-lg font-bold text-white">{comic.title}</h3>
           <p className="text-sm text-slate-400">by {comic.author}</p>
+          {comic.alternativeTitles?.length > 0 && (
+            <p className="mt-1 line-clamp-1 text-xs text-slate-500">Also known as: {comic.alternativeTitles.join(", ")}</p>
+          )
         </div>
         <p className="line-clamp-3 min-h-[4.5rem] text-sm leading-6 text-slate-300">{comic.description}</p>
         <div className="flex flex-wrap gap-2">
@@ -297,6 +303,7 @@ function CustomerLanding({ comics, allGenres, selectedGenre, setSelectedGenre, q
           comic.title.toLowerCase().includes(normalizedQuery) ||
           comic.author.toLowerCase().includes(normalizedQuery) ||
           comic.description.toLowerCase().includes(normalizedQuery) ||
+          (comic.alternativeTitles || []).some((title) => title.toLowerCase().includes(normalizedQuery)) ||
           chapterText.toLowerCase().includes(normalizedQuery) ||
           comic.genres.some((genre) => genre.toLowerCase().includes(normalizedQuery));
         const matchesGenre = selectedGenre === "All" || comic.genres.includes(selectedGenre);
@@ -587,6 +594,7 @@ function AdminBackend({ comics, setComics, allGenres }) {
     description: "",
     genres: [],
     newGenre: "",
+    alternativeTitlesText: "",
     cover: "",
     featured: false,
     status: "Published",
@@ -616,6 +624,7 @@ function AdminBackend({ comics, setComics, allGenres }) {
         return (
           comic.title.toLowerCase().includes(q) ||
           comic.author.toLowerCase().includes(q) ||
+          (comic.alternativeTitles || []).some((title) => title.toLowerCase().includes(q)) ||
           comic.status.toLowerCase().includes(q) ||
           chapterText.toLowerCase().includes(q) ||
           comic.genres.some((genre) => genre.toLowerCase().includes(q))
@@ -716,6 +725,11 @@ function AdminBackend({ comics, setComics, allGenres }) {
       author: form.author.trim() || "Unknown creator",
       description: form.description.trim() || "No description added yet.",
       genres: [...form.genres].sort((a, b) => a.localeCompare(b)),
+      alternativeTitles: form.alternativeTitlesText
+        .split("
+")
+        .map((title) => normalizeTitle(title))
+        .filter(Boolean),
       cover: form.cover || "https://images.unsplash.com/photo-1612036782180-6f0b6cd846fe?q=80&w=900&auto=format&fit=crop",
       featured: form.featured,
       status: form.status,
@@ -740,6 +754,8 @@ function AdminBackend({ comics, setComics, allGenres }) {
       description: comic.description,
       genres: comic.genres,
       newGenre: "",
+      alternativeTitlesText: (comic.alternativeTitles || []).join("
+"),
       cover: comic.cover,
       featured: comic.featured,
       status: comic.status,
@@ -816,6 +832,19 @@ function AdminBackend({ comics, setComics, allGenres }) {
             <textarea value={form.description} onChange={(event) => setForm((current) => ({ ...current, description: event.target.value }))} placeholder="Write a short synopsis for readers." rows={4} className="w-full resize-none rounded-2xl border border-white/10 bg-slate-900 px-4 py-3 text-white outline-none transition focus:border-violet-300" />
           </label>
 
+          <label className="block space-y-2">
+            <span className="text-sm font-medium text-slate-300">Alternative titles</span>
+            <textarea
+              value={form.alternativeTitlesText}
+              onChange={(event) => setForm((current) => ({ ...current, alternativeTitlesText: event.target.value }))}
+              placeholder={"Add one alternative title per line, e.g.
+Moon Market
+Lunar Bazaar"}
+              rows={3}
+              className="w-full resize-none rounded-2xl border border-white/10 bg-slate-900 px-4 py-3 text-white outline-none transition focus:border-violet-300"
+            />
+          </label>
+
           <label className="group flex cursor-pointer flex-col items-center justify-center rounded-2xl border border-dashed border-white/20 bg-slate-900/80 p-5 text-center transition hover:border-violet-300">
             <ImageIcon className="mb-2 h-7 w-7 text-violet-200" />
             <span className="font-semibold text-white">Upload cover image</span>
@@ -831,6 +860,10 @@ function AdminBackend({ comics, setComics, allGenres }) {
                 <div>
                   <p className="font-medium text-white">{form.title || "Untitled comic"}</p>
                   <p className="text-sm text-slate-400">{form.chapters.length} chapter{form.chapters.length === 1 ? "" : "s"} added</p>
+                  {form.alternativeTitlesText.trim() && (
+                    <p className="mt-1 line-clamp-1 text-xs text-slate-500">Also known as: {form.alternativeTitlesText.split("
+").map((title) => normalizeTitle(title)).filter(Boolean).join(", ")}</p>
+                  )
                 </div>
               </div>
             </div>
@@ -1025,6 +1058,9 @@ function ComicReaderModal({ comic, onClose }) {
             <div>
               <p className="text-sm text-slate-400">Creator</p>
               <p className="text-lg font-bold text-white">{comic.author}</p>
+              {comic.alternativeTitles?.length > 0 && (
+                <p className="mt-1 text-sm text-slate-400">Also known as: {comic.alternativeTitles.join(", ")}</p>
+              )
             </div>
             <p className="leading-7 text-slate-300">{comic.description}</p>
             <div className="flex flex-wrap gap-2">
