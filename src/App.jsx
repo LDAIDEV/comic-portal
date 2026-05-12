@@ -811,7 +811,7 @@ function AdminAuth({ onLogin }) {
     });
 
     return () => listener.subscription.unsubscribe();
-  }, [onLogin]);
+  }, []);
 
   const handleSubmit = async (event) => {
     event.preventDefault();
@@ -1527,8 +1527,10 @@ export default function ComicPortalWebsite() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
 
-  const refreshComics = async () => {
-    setIsLoadingComics(true);
+  const refreshComics = async ({ showLoading = false } = {}) => {
+    if (showLoading) {
+      setIsLoadingComics(true);
+    }
 
     try {
       const loadedComics = await loadComicsFromSupabase();
@@ -1537,13 +1539,15 @@ export default function ComicPortalWebsite() {
       console.error(error);
       setComics([]);
     } finally {
-      setIsLoadingComics(false);
+      if (showLoading) {
+        setIsLoadingComics(false);
+      }
     }
   };
 
   useEffect(() => {
-    refreshComics();
-  }, [activeView]);
+    refreshComics({ showLoading: true });
+  }, []);
 
   useEffect(() => {
     if (!supabase) return;
