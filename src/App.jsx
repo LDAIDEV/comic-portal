@@ -33,6 +33,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { createClient } from "@supabase/supabase-js";
 
 const storageKey = "comic_portal_library_v2";
+const comicPagesBucket = "Comic-pages";
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
@@ -170,6 +171,71 @@ function readFileAsDataUrl(file) {
     reader.onload = () => resolve(reader.result || "");
     reader.readAsDataURL(file);
   });
+}
+
+function slugify(value) {
+  const text = normalizeTitle(value || "untitled").toLowerCase();
+  let output = "";
+  let previousWasDash = false;
+
+  for (const character of text) {
+    const isLetterOrNumber =
+      (character >= "a" && character <= "z") ||
+      (character >= "0" && character <= "9");
+
+    if (isLetterOrNumber) {
+      output += character;
+      previousWasDash = false;
+    } else if (!previousWasDash) {
+      output += "-";
+      previousWasDash = true;
+    }
+  }
+
+  while (output.startsWith("-")) output = output.slice(1);
+  while (output.endsWith("-")) output = output.slice(0, -1);
+
+  return output || "untitled";
+}
+
+function splitLines(value) {
+  return String(value || "")
+    .split(String.fromCharCode(10))
+    .map((line) => line.replaceAll(String.fromCharCode(13), ""));
+}
+
+async function uploadComicFileToSupabase(file, comicTitle, chapterTitle, index) {
+  if (!supabase) {
+    throw new Error("Supabase is not configured.");
+  }
+
+  const extension = file.name.includes(".") ? file.name.split(".").pop().toLowerCase() : "file";
+  const comicSlug = slugify(comicTitle || "untitled-comic");
+  const chapterSlug = slugify(chapterTitle || "chapter");
+  const pageNumber = String(index + 1).padStart(3, "0");
+  const filePath = `${comicSlug}/${chapterSlug}/${pageNumber}-${crypto.randomUUID()}.${extension}`;
+
+  const { error } = await supabase.storage
+    .from(comicPagesBucket)
+    .upload(filePath, file, {
+      cacheControl: "3600",
+      contentType: file.type || "application/octet-stream",
+      upsert: false,
+    });
+
+  if (error) {
+    throw error;
+  }
+
+  const { data } = supabase.storage.from(comicPagesBucket).getPublicUrl(filePath);
+
+  return {
+    id: crypto.randomUUID(),
+    name: file.name,
+    type: getFileType(file),
+    src: data.publicUrl,
+    path: filePath,
+  };
 }
 
 function pathIsAdmin() {
@@ -652,19 +718,28 @@ function AdminBackend({ comics, setComics, allGenres }) {
     const files = Array.from(event.target.files || []);
     if (!files.length) return;
 
-    const convertedFiles = await Promise.all(
-      files.map(async (file) => ({
-        id: crypto.randomUUID(),
-        name: file.name,
-        type: getFileType(file),
-        src: await readFileAsDataUrl(file),
-      }))
-    );
+    if (!supabase) {
+      alert("Supabase is not configured. Add your Supabase environment variables first.");
+      event.target.value = "";
+      return;
+    }
 
-    setForm((current) => {
-      const chapterNumber = current.chapters.length + 1;
-      const chapterTitle = normalizeTitle(current.newChapterTitle) || `Chapter ${chapterNumber}`;
-      return {
+    const { data: sessionData } = await supabase.auth.getSession();
+    if (!sessionData.session) {
+      alert("Please log in again before uploading chapter files.");
+      event.target.value = "";
+      return;
+    }
+
+    const chapterNumber = form.chapters.length + 1;
+    const chapterTitle = normalizeTitle(form.newChapterTitle) || `Chapter ${chapterNumber}`;
+
+    try {
+      const convertedFiles = await Promise.all(
+        files.map((file, index) => uploadComicFileToSupabase(file, form.title || "untitled-comic", chapterTitle, index))
+      );
+
+      setForm((current) => ({
         ...current,
         chapters: [
           ...current.chapters,
@@ -676,10 +751,13 @@ function AdminBackend({ comics, setComics, allGenres }) {
           },
         ],
         newChapterTitle: "",
-      };
-    });
-
-    event.target.value = "";
+      }));
+    } catch (error) {
+      console.error(error);
+      alert(error.message || "Upload failed. Please try again.");
+    } finally {
+      event.target.value = "";
+    }
   };
 
   const removeChapter = (chapterId) => {
@@ -726,7 +804,7 @@ function AdminBackend({ comics, setComics, allGenres }) {
       description: form.description.trim() || "No description added yet.",
       genres: [...form.genres].sort((a, b) => a.localeCompare(b)),
       alternativeTitles: form.alternativeTitlesText
-        .split(String.fromCharCode(10))
+      .split(String.fromCharCode(10))
         .map((title) => normalizeTitle(title))
         .filter(Boolean),
       cover: form.cover || "https://images.unsplash.com/photo-1612036782180-6f0b6cd846fe?q=80&w=900&auto=format&fit=crop",
@@ -848,27 +926,21 @@ function AdminBackend({ comics, setComics, allGenres }) {
             <input type="file" accept="image/*" onChange={handleCoverUpload} className="hidden" />
           </label>
 
-{(form.cover || form.title) && (
-  <div className="rounded-2xl border border-white/10 bg-slate-900 p-4">
-    <p className="mb-3 text-sm font-semibold text-slate-300">Comic preview</p>
-    <div className="flex items-center gap-4">
-      <img src={form.cover || "https://images.unsplash.com/photo-1612036782180-6f0b6cd846fe?q=80&w=900&auto=format&fit=crop"} alt="Cover preview" className="h-20 w-16 rounded-xl object-cover" />
-      <div>
-        <p className="font-medium text-white">{form.title || "Untitled comic"}</p>
-        <p className="text-sm text-slate-400">{form.chapters.length} chapter{form.chapters.length === 1 ? "" : "s"} added</p>
-        {form.alternativeTitlesText.trim() && (
-          <p className="mt-1 line-clamp-1 text-xs text-slate-500">
-            Also known as: {form.alternativeTitlesText
-              .split(/\n/)
-              .map((title) => normalizeTitle(title))
-              .filter(Boolean)
-              .join(", ")}
-          </p>
-        )}
-      </div>
-    </div>
-  </div>
-)}
+          {(form.cover || form.title) && (
+            <div className="rounded-2xl border border-white/10 bg-slate-900 p-4">
+              <p className="mb-3 text-sm font-semibold text-slate-300">Comic preview</p>
+              <div className="flex items-center gap-4">
+                <img src={form.cover || "https://images.unsplash.com/photo-1612036782180-6f0b6cd846fe?q=80&w=900&auto=format&fit=crop"} alt="Cover preview" className="h-20 w-16 rounded-xl object-cover" />
+                <div>
+                  <p className="font-medium text-white">{form.title || "Untitled comic"}</p>
+                  <p className="text-sm text-slate-400">{form.chapters.length} chapter{form.chapters.length === 1 ? "" : "s"} added</p>
+                  {form.alternativeTitlesText.trim() && (
+                    <p className="mt-1 line-clamp-1 text-xs text-slate-500">Also known as: {form.alternativeTitlesText.split(String.fromCharCode(10)).map((title) => normalizeTitle(title)).filter(Boolean).join(", ")}</p>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
 
           <div className="grid gap-4 sm:grid-cols-2">
             <label className="space-y-2">
