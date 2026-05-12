@@ -27,6 +27,7 @@ import {
   UserPlus,
   Sun,
   Moon,
+  Share2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -43,34 +44,6 @@ const adminEmails = (import.meta.env.VITE_ADMIN_EMAILS || "")
   .filter(Boolean);
 
 const supabase = supabaseUrl && supabaseAnonKey ? createClient(supabaseUrl, supabaseAnonKey) : null;
-
-const refreshComics = async () => {
-  setIsLoadingComics(true);
-
-  try {
-    const loadedComics = await loadComicsFromSupabase();
-    setComics(loadedComics);
-  } catch (error) {
-    console.error(error);
-    setComics([]);
-  } finally {
-    setIsLoadingComics(false);
-  }
-};
-
-useEffect(() => {
-  refreshComics();
-}, [activeView]);
-
-useEffect(() => {
-  if (!supabase) return;
-
-  const { data: listener } = supabase.auth.onAuthStateChange(() => {
-    refreshComics();
-  });
-
-  return () => listener.subscription.unsubscribe();
-}, []);
 
 function isAllowedAdmin(email) {
   if (!email) return false;
@@ -232,7 +205,7 @@ function splitLines(value) {
     .map((line) => line.replaceAll(String.fromCharCode(13), ""));
 }
 
-async function uploadComicFileToSupabase(file, comicTitle, chapterTitle, index) {
+async function uploadComicFileToSupabase(file, comicTitle, chapterTitle, index, folder = "chapters") {
   if (!supabase) {
     throw new Error("Supabase is not configured.");
   }
@@ -241,7 +214,7 @@ async function uploadComicFileToSupabase(file, comicTitle, chapterTitle, index) 
   const comicSlug = slugify(comicTitle || "untitled-comic");
   const chapterSlug = slugify(chapterTitle || "chapter");
   const pageNumber = String(index + 1).padStart(3, "0");
-  const filePath = `${comicSlug}/${chapterSlug}/${pageNumber}-${crypto.randomUUID()}.${extension}`;
+  const filePath = `${folder}/${comicSlug}/${chapterSlug}/${pageNumber}-${crypto.randomUUID()}.${extension}`;
 
   const { error } = await supabase.storage
     .from(comicPagesBucket)
@@ -264,8 +237,81 @@ async function uploadComicFileToSupabase(file, comicTitle, chapterTitle, index) 
     src: data.publicUrl,
     path: filePath,
   };
+}
 
-  function dbComicToAppComic(row) {
+async function uploadCoverToSupabase(file, comicTitle) {
+  const uploaded = await uploadComicFileToSupabase(file, comicTitle || "untitled-comic", "cover", 0, "covers");
+  return uploaded;
+}
+
+function storagePathFromPublicUrl(url) {
+  if (!url || typeof url !== "string") return "";
+  const marker = `/storage/v1/object/public/${comicPagesBucket}/`;
+  const index = url.indexOf(marker);
+  if (index === -1) return "";
+  const path = url.slice(index + marker.length).split("?")[0];
+  try {
+    return decodeURIComponent(path);
+  } catch {
+    return path;
+  }
+}
+
+function getComicStoragePaths(comic) {
+  const filePaths = (comic.chapters || [])
+    .flatMap((chapter) => chapter.files || [])
+    .map((file) => file.path || storagePathFromPublicUrl(file.src))
+    .filter(Boolean);
+
+  const coverPath = storagePathFromPublicUrl(comic.cover || comic.cover_url || "");
+  return Array.from(new Set([...filePaths, coverPath].filter(Boolean)));
+}
+
+async function getStoragePathsForComic(comicId) {
+  if (!supabase || !comicId) {
+    return [];
+  }
+
+  const { data: comicData, error: comicError } = await supabase
+    .from("comics")
+    .select("cover_url")
+    .eq("id", comicId)
+    .single();
+
+  if (comicError && comicError.code !== "PGRST116") {
+    throw comicError;
+  }
+
+  const { data: fileData, error: fileError } = await supabase
+    .from("chapter_files")
+    .select(`
+      file_path,
+      chapters!inner (
+        comic_id
+      )
+    `)
+    .eq("chapters.comic_id", comicId);
+
+  if (fileError) {
+    throw fileError;
+  }
+
+  const coverPath = storagePathFromPublicUrl(comicData?.cover_url || "");
+  const filePaths = (fileData || []).map((row) => row.file_path).filter(Boolean);
+  return Array.from(new Set([...filePaths, coverPath].filter(Boolean)));
+}
+
+async function removeStorageFiles(paths) {
+  const uniquePaths = Array.from(new Set((paths || []).filter(Boolean)));
+  if (!supabase || uniquePaths.length === 0) return;
+
+  const { error } = await supabase.storage.from(comicPagesBucket).remove(uniquePaths);
+  if (error) {
+    console.warn("Some storage files could not be removed:", error.message);
+  }
+}
+
+function dbComicToAppComic(row) {
   return {
     id: row.id,
     title: row.title,
@@ -346,6 +392,8 @@ async function saveComicToSupabase(editingId, comicPayload) {
     throw new Error("Supabase is not configured.");
   }
 
+  const previousStoragePaths = editingId ? await getStoragePathsForComic(editingId) : [];
+
   const comicRow = {
     title: comicPayload.title,
     alternative_titles: comicPayload.alternativeTitles || [],
@@ -366,18 +414,14 @@ async function saveComicToSupabase(editingId, comicPayload) {
       .update(comicRow)
       .eq("id", editingId);
 
-    if (updateError) {
-      throw updateError;
-    }
+    if (updateError) throw updateError;
 
     const { error: deleteChaptersError } = await supabase
       .from("chapters")
       .delete()
       .eq("comic_id", editingId);
 
-    if (deleteChaptersError) {
-      throw deleteChaptersError;
-    }
+    if (deleteChaptersError) throw deleteChaptersError;
   } else {
     const { data, error: insertError } = await supabase
       .from("comics")
@@ -385,10 +429,7 @@ async function saveComicToSupabase(editingId, comicPayload) {
       .select("id")
       .single();
 
-    if (insertError) {
-      throw insertError;
-    }
-
+    if (insertError) throw insertError;
     comicId = data.id;
   }
 
@@ -403,29 +444,26 @@ async function saveComicToSupabase(editingId, comicPayload) {
       .select("id")
       .single();
 
-    if (chapterError) {
-      throw chapterError;
-    }
+    if (chapterError) throw chapterError;
 
     const fileRows = (chapter.files || []).map((file, fileIndex) => ({
       chapter_id: insertedChapter.id,
       name: file.name,
       file_type: file.type,
       file_url: file.src,
-      file_path: file.path || "",
+      file_path: file.path || storagePathFromPublicUrl(file.src),
       page_order: fileIndex + 1,
     }));
 
     if (fileRows.length > 0) {
-      const { error: filesError } = await supabase
-        .from("chapter_files")
-        .insert(fileRows);
-
-      if (filesError) {
-        throw filesError;
-      }
+      const { error: filesError } = await supabase.from("chapter_files").insert(fileRows);
+      if (filesError) throw filesError;
     }
   }
+
+  const nextStoragePaths = getComicStoragePaths(comicPayload);
+  const pathsToRemove = previousStoragePaths.filter((path) => !nextStoragePaths.includes(path));
+  await removeStorageFiles(pathsToRemove);
 
   return comicId;
 }
@@ -435,14 +473,12 @@ async function deleteComicFromSupabase(comicId) {
     throw new Error("Supabase is not configured.");
   }
 
-  const { error } = await supabase
-    .from("comics")
-    .delete()
-    .eq("id", comicId);
+  const storagePaths = await getStoragePathsForComic(comicId);
 
-  if (error) {
-    throw error;
-  }
+  const { error } = await supabase.from("comics").delete().eq("id", comicId);
+  if (error) throw error;
+
+  await removeStorageFiles(storagePaths);
 }
 
 async function togglePublishInSupabase(comic) {
@@ -460,10 +496,27 @@ async function togglePublishInSupabase(comic) {
     })
     .eq("id", comic.id);
 
-  if (error) {
-    throw error;
-  }
+  if (error) throw error;
 }
+
+async function shareWebsite(title = "Jjangboards", text = "Read comics on Jjangboards.") {
+  const shareUrl = window.location.origin;
+
+  if (navigator.share) {
+    try {
+      await navigator.share({ title, text, url: shareUrl });
+      return;
+    } catch (error) {
+      if (error.name !== "AbortError") console.error(error);
+    }
+  }
+
+  try {
+    await navigator.clipboard.writeText(shareUrl);
+    alert("Link copied to clipboard.");
+  } catch {
+    alert(`Share this link: ${shareUrl}`);
+  }
 }
 
 function pathIsAdmin() {
@@ -872,11 +925,6 @@ function AdminAuth({ onLogin }) {
       <button type="button" onClick={() => { setMode(mode === "create" ? "login" : "create"); setMessage(""); }} className="mt-4 text-sm text-slate-400 underline underline-offset-4 hover:text-violet-200">
         {mode === "create" ? "Already have an account? Log in" : "Need to create the admin account?"}
       </button>
-
-      <div className="mt-5 rounded-2xl bg-slate-900 p-4 text-left text-xs leading-5 text-slate-500">
-        <p className="font-semibold text-slate-300">Security note</p>
-        <p className="mt-1">Set VITE_ADMIN_EMAILS to the email addresses allowed to access the admin backend. Database and file uploads should also be protected with backend rules.</p>
-      </div>
     </section>
   );
 }
@@ -932,14 +980,25 @@ function AdminBackend({ comics, allGenres, refreshComics }) {
     setForm(blankForm);
   };
 
-  const handleCoverUpload = (event) => {
+  const handleCoverUpload = async (event) => {
     const file = event.target.files?.[0];
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      setForm((current) => ({ ...current, cover: reader.result }));
-    };
-    reader.readAsDataURL(file);
+
+    if (!supabase) {
+      alert("Supabase is not configured. Add your Supabase environment variables first.");
+      event.target.value = "";
+      return;
+    }
+
+    try {
+      const uploadedCover = await uploadCoverToSupabase(file, form.title || "untitled-comic");
+      setForm((current) => ({ ...current, cover: uploadedCover.src }));
+    } catch (error) {
+      console.error(error);
+      alert(error.message || "Cover upload failed. Please try again.");
+    } finally {
+      event.target.value = "";
+    }
   };
 
   const handleChapterUpload = async (event) => {
@@ -1467,6 +1526,35 @@ export default function ComicPortalWebsite() {
   const [readerComic, setReaderComic] = useState(null);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
+
+  const refreshComics = async () => {
+    setIsLoadingComics(true);
+
+    try {
+      const loadedComics = await loadComicsFromSupabase();
+      setComics(loadedComics);
+    } catch (error) {
+      console.error(error);
+      setComics([]);
+    } finally {
+      setIsLoadingComics(false);
+    }
+  };
+
+  useEffect(() => {
+    refreshComics();
+  }, [activeView]);
+
+  useEffect(() => {
+    if (!supabase) return;
+
+    const { data: listener } = supabase.auth.onAuthStateChange(() => {
+      refreshComics();
+    });
+
+    return () => listener.subscription.unsubscribe();
+  }, []);
+
   useEffect(() => {
     if (!adsenseClient) return;
     if (document.querySelector("script[data-adsense-script='true']")) return;
@@ -1521,6 +1609,9 @@ export default function ComicPortalWebsite() {
             <button className="inline-flex items-center gap-2 rounded-2xl bg-violet-300 px-4 py-3 text-sm font-semibold text-slate-950 transition hover:bg-violet-200" onClick={() => navigateTo("/")}> 
               <Home className="h-4 w-4" /> Customer Site
             </button>
+            <button className="inline-flex items-center gap-2 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-semibold text-slate-300 transition hover:border-violet-300" onClick={() => shareWebsite()}>
+              <Share2 className="h-4 w-4" /> Share
+            </button>
             <button className="inline-flex items-center gap-2 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-semibold text-slate-300 transition hover:border-violet-300" onClick={() => setTheme((current) => (current === "dark" ? "light" : "dark"))}>
               {theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
               {theme === "dark" ? "Light Mode" : "Dark Mode"}
@@ -1536,6 +1627,9 @@ export default function ComicPortalWebsite() {
           <div className="mx-auto flex max-w-7xl gap-3 px-4 pb-4 sm:px-6 lg:px-8 md:hidden">
             <button className="inline-flex items-center gap-2 rounded-2xl bg-violet-300 px-4 py-3 text-sm font-semibold text-slate-950" onClick={() => { navigateTo("/"); setMobileMenuOpen(false); }}>
               <Home className="h-4 w-4" /> Customer
+            </button>
+            <button className="inline-flex items-center gap-2 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-semibold text-slate-300" onClick={() => shareWebsite()}>
+              <Share2 className="h-4 w-4" /> Share
             </button>
             <button className="inline-flex items-center gap-2 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-semibold text-slate-300" onClick={() => setTheme((current) => (current === "dark" ? "light" : "dark"))}>
               {theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
