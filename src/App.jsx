@@ -848,21 +848,27 @@ function AdminBackend({ comics, setComics, allGenres }) {
             <input type="file" accept="image/*" onChange={handleCoverUpload} className="hidden" />
           </label>
 
-          {(form.cover || form.title) && (
-            <div className="rounded-2xl border border-white/10 bg-slate-900 p-4">
-              <p className="mb-3 text-sm font-semibold text-slate-300">Comic preview</p>
-              <div className="flex items-center gap-4">
-                <img src={form.cover || "https://images.unsplash.com/photo-1612036782180-6f0b6cd846fe?q=80&w=900&auto=format&fit=crop"} alt="Cover preview" className="h-20 w-16 rounded-xl object-cover" />
-                <div>
-                  <p className="font-medium text-white">{form.title || "Untitled comic"}</p>
-                  <p className="text-sm text-slate-400">{form.chapters.length} chapter{form.chapters.length === 1 ? "" : "s"} added</p>
-                  {form.alternativeTitlesText.trim() && (
-                    <p className="mt-1 line-clamp-1 text-xs text-slate-500">Also known as: {form.alternativeTitlesText.split(String.fromCharCode(10)).map((title) => normalizeTitle(title)).filter(Boolean).join(", ")}</p>
-                  )}
-                </div>
-              </div>
-            </div>
-          )}
+{(form.cover || form.title) && (
+  <div className="rounded-2xl border border-white/10 bg-slate-900 p-4">
+    <p className="mb-3 text-sm font-semibold text-slate-300">Comic preview</p>
+    <div className="flex items-center gap-4">
+      <img src={form.cover || "https://images.unsplash.com/photo-1612036782180-6f0b6cd846fe?q=80&w=900&auto=format&fit=crop"} alt="Cover preview" className="h-20 w-16 rounded-xl object-cover" />
+      <div>
+        <p className="font-medium text-white">{form.title || "Untitled comic"}</p>
+        <p className="text-sm text-slate-400">{form.chapters.length} chapter{form.chapters.length === 1 ? "" : "s"} added</p>
+        {form.alternativeTitlesText.trim() && (
+          <p className="mt-1 line-clamp-1 text-xs text-slate-500">
+            Also known as: {form.alternativeTitlesText
+              .split(/\n/)
+              .map((title) => normalizeTitle(title))
+              .filter(Boolean)
+              .join(", ")}
+          </p>
+        )}
+      </div>
+    </div>
+  </div>
+)}
 
           <div className="grid gap-4 sm:grid-cols-2">
             <label className="space-y-2">
@@ -884,13 +890,13 @@ function AdminBackend({ comics, setComics, allGenres }) {
               <p className="inline-flex items-center gap-2 text-sm font-semibold text-slate-200">
                 <Layers className="h-4 w-4" /> Chapter uploads *
               </p>
-              <p className="mt-1 text-xs text-slate-500">Add one chapter at a time. Each chapter can contain a PDF, CBZ/ZIP archive, or multiple image pages.</p>
+              <p className="mt-1 text-xs text-slate-500">Add one chapter at a time. Select one PDF/CBZ file or select multiple image pages at once. Image pages will appear vertically in reading order.</p>
             </div>
 
             <div className="grid gap-3 sm:grid-cols-[1fr_auto]">
               <input value={form.newChapterTitle} onChange={(event) => setForm((current) => ({ ...current, newChapterTitle: event.target.value }))} placeholder={`Chapter title, e.g. Chapter ${form.chapters.length + 1}`} className="rounded-2xl border border-white/10 bg-slate-950 px-4 py-3 text-white outline-none transition focus:border-violet-300" />
               <label className="inline-flex cursor-pointer items-center justify-center gap-2 rounded-2xl bg-violet-300 px-5 py-3 font-semibold text-slate-950 transition hover:bg-violet-200">
-                <Upload className="h-4 w-4" /> Upload chapter
+                <Upload className="h-4 w-4" /> Upload chapter files
                 <input type="file" multiple accept="image/*,.pdf,.cbz,.cbr,.zip" onChange={handleChapterUpload} className="hidden" />
               </label>
             </div>
@@ -1031,7 +1037,9 @@ function ComicReaderModal({ comic, onClose }) {
 
   const chapters = comic.chapters || [];
   const activeChapter = chapters.find((chapter) => chapter.id === activeChapterId) || chapters[0];
-  const imageFiles = activeChapter?.files.filter((file) => file.type === "Image" && file.src) || [];
+  const imageFiles = (activeChapter?.files.filter((file) => file.type === "Image" && file.src) || []).slice().sort((a, b) =>
+    a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" })
+  );
   const documentFiles = activeChapter?.files.filter((file) => file.type !== "Image" || !file.src) || [];
 
   return (
@@ -1105,14 +1113,16 @@ function ComicReaderModal({ comic, onClose }) {
                 )}
 
                 {imageFiles.length > 0 && (
-                  <div className="mt-4 space-y-4">
+                  <div className="mt-4 space-y-3">
                     <p className="text-sm font-semibold text-slate-300">Image pages</p>
-                    {imageFiles.map((file, index) => (
-                      <figure key={file.id} className="overflow-hidden rounded-3xl border border-white/10 bg-slate-950">
-                        <img src={file.src} alt={file.name} className="w-full object-contain" />
-                        <figcaption className="border-t border-white/10 px-4 py-3 text-xs text-slate-400">Page {index + 1}: {file.name}</figcaption>
-                      </figure>
-                    ))}
+                    <div className="mx-auto max-w-4xl space-y-4">
+                      {imageFiles.map((file, index) => (
+                        <figure key={file.id} className="overflow-hidden rounded-3xl border border-white/10 bg-slate-950">
+                          <img src={file.src} alt={file.name} className="block w-full object-contain" />
+                          <figcaption className="border-t border-white/10 px-4 py-3 text-xs text-slate-400">Page {index + 1}: {file.name}</figcaption>
+                        </figure>
+                      ))}
+                    </div>
                   </div>
                 )}
               </div>
