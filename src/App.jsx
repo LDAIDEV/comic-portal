@@ -1604,7 +1604,7 @@ export default function ComicPortalWebsite() {
               <BookOpen className="h-6 w-6" />
             </div>
             <div>
-              <p className="text-lg font-black leading-none">PanelPop</p>
+              <p className="text-lg font-black leading-none">Jjangboards</p>
               <p className="text-xs text-slate-400">Comic portal</p>
             </div>
           </button>
