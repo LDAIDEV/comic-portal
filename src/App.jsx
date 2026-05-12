@@ -803,8 +803,7 @@ function AdminBackend({ comics, setComics, allGenres }) {
       author: form.author.trim() || "Unknown creator",
       description: form.description.trim() || "No description added yet.",
       genres: [...form.genres].sort((a, b) => a.localeCompare(b)),
-      alternativeTitles: form.alternativeTitlesText
-      .split(String.fromCharCode(10))
+      alternativeTitles: splitLines(form.alternativeTitlesText)
         .map((title) => normalizeTitle(title))
         .filter(Boolean),
       cover: form.cover || "https://images.unsplash.com/photo-1612036782180-6f0b6cd846fe?q=80&w=900&auto=format&fit=crop",
@@ -935,7 +934,7 @@ function AdminBackend({ comics, setComics, allGenres }) {
                   <p className="font-medium text-white">{form.title || "Untitled comic"}</p>
                   <p className="text-sm text-slate-400">{form.chapters.length} chapter{form.chapters.length === 1 ? "" : "s"} added</p>
                   {form.alternativeTitlesText.trim() && (
-                    <p className="mt-1 line-clamp-1 text-xs text-slate-500">Also known as: {form.alternativeTitlesText.split(String.fromCharCode(10)).map((title) => normalizeTitle(title)).filter(Boolean).join(", ")}</p>
+                    <p className="mt-1 line-clamp-1 text-xs text-slate-500">Also known as: {splitLines(form.alternativeTitlesText).map((title) => normalizeTitle(title)).filter(Boolean).join(", ")}</p>
                   )}
                 </div>
               </div>
@@ -1185,14 +1184,11 @@ function ComicReaderModal({ comic, onClose }) {
                 )}
 
                 {imageFiles.length > 0 && (
-                  <div className="mt-4 space-y-3">
-                    <p className="text-sm font-semibold text-slate-300">Image pages</p>
-                    <div className="mx-auto max-w-4xl space-y-4">
+                  <div className="mt-4">
+                    <p className="mb-3 text-sm font-semibold text-slate-300">Image pages</p>
+                    <div className="mx-auto max-w-4xl overflow-hidden rounded-2xl bg-slate-950 leading-none">
                       {imageFiles.map((file, index) => (
-                        <figure key={file.id} className="overflow-hidden rounded-3xl border border-white/10 bg-slate-950">
-                          <img src={file.src} alt={file.name} className="block w-full object-contain" />
-                          <figcaption className="border-t border-white/10 px-4 py-3 text-xs text-slate-400">Page {index + 1}: {file.name}</figcaption>
-                        </figure>
+                        <img key={file.id} src={file.src} alt={`Page ${index + 1}: ${file.name}`} className="block w-full h-auto object-contain m-0 p-0" />
                       ))}
                     </div>
                   </div>
