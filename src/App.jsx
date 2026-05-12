@@ -44,6 +44,34 @@ const adminEmails = (import.meta.env.VITE_ADMIN_EMAILS || "")
 
 const supabase = supabaseUrl && supabaseAnonKey ? createClient(supabaseUrl, supabaseAnonKey) : null;
 
+const refreshComics = async () => {
+  setIsLoadingComics(true);
+
+  try {
+    const loadedComics = await loadComicsFromSupabase();
+    setComics(loadedComics);
+  } catch (error) {
+    console.error(error);
+    setComics([]);
+  } finally {
+    setIsLoadingComics(false);
+  }
+};
+
+useEffect(() => {
+  refreshComics();
+}, [activeView]);
+
+useEffect(() => {
+  if (!supabase) return;
+
+  const { data: listener } = supabase.auth.onAuthStateChange(() => {
+    refreshComics();
+  });
+
+  return () => listener.subscription.unsubscribe();
+}, []);
+
 function isAllowedAdmin(email) {
   if (!email) return false;
   if (adminEmails.length === 0) return true;
@@ -236,6 +264,206 @@ async function uploadComicFileToSupabase(file, comicTitle, chapterTitle, index) 
     src: data.publicUrl,
     path: filePath,
   };
+
+  function dbComicToAppComic(row) {
+  return {
+    id: row.id,
+    title: row.title,
+    alternativeTitles: row.alternative_titles || [],
+    author: row.author || "Unknown creator",
+    description: row.description || "No description added yet.",
+    cover: row.cover_url || "https://images.unsplash.com/photo-1612036782180-6f0b6cd846fe?q=80&w=900&auto=format&fit=crop",
+    genres: row.genres || [],
+    featured: Boolean(row.featured),
+    status: row.status || "Draft",
+    createdAt: row.created_at,
+    chapters: (row.chapters || [])
+      .slice()
+      .sort((a, b) => (a.chapter_order || 0) - (b.chapter_order || 0))
+      .map((chapter) => ({
+        id: chapter.id,
+        title: chapter.title,
+        createdAt: chapter.created_at,
+        files: (chapter.chapter_files || [])
+          .slice()
+          .sort((a, b) => (a.page_order || 0) - (b.page_order || 0))
+          .map((file) => ({
+            id: file.id,
+            name: file.name,
+            type: file.file_type,
+            src: file.file_url,
+            path: file.file_path || "",
+          })),
+      })),
+  };
+}
+
+async function loadComicsFromSupabase() {
+  if (!supabase) {
+    return starterComics;
+  }
+
+  const { data, error } = await supabase
+    .from("comics")
+    .select(`
+      id,
+      title,
+      alternative_titles,
+      author,
+      description,
+      cover_url,
+      genres,
+      featured,
+      status,
+      created_at,
+      chapters (
+        id,
+        title,
+        chapter_order,
+        created_at,
+        chapter_files (
+          id,
+          name,
+          file_type,
+          file_url,
+          file_path,
+          page_order,
+          created_at
+        )
+      )
+    `)
+    .order("title", { ascending: true });
+
+  if (error) {
+    throw error;
+  }
+
+  return (data || []).map(dbComicToAppComic);
+}
+
+async function saveComicToSupabase(editingId, comicPayload) {
+  if (!supabase) {
+    throw new Error("Supabase is not configured.");
+  }
+
+  const comicRow = {
+    title: comicPayload.title,
+    alternative_titles: comicPayload.alternativeTitles || [],
+    author: comicPayload.author,
+    description: comicPayload.description,
+    cover_url: comicPayload.cover,
+    genres: comicPayload.genres || [],
+    featured: comicPayload.featured,
+    status: comicPayload.status,
+    updated_at: new Date().toISOString(),
+  };
+
+  let comicId = editingId;
+
+  if (editingId) {
+    const { error: updateError } = await supabase
+      .from("comics")
+      .update(comicRow)
+      .eq("id", editingId);
+
+    if (updateError) {
+      throw updateError;
+    }
+
+    const { error: deleteChaptersError } = await supabase
+      .from("chapters")
+      .delete()
+      .eq("comic_id", editingId);
+
+    if (deleteChaptersError) {
+      throw deleteChaptersError;
+    }
+  } else {
+    const { data, error: insertError } = await supabase
+      .from("comics")
+      .insert(comicRow)
+      .select("id")
+      .single();
+
+    if (insertError) {
+      throw insertError;
+    }
+
+    comicId = data.id;
+  }
+
+  for (const [chapterIndex, chapter] of comicPayload.chapters.entries()) {
+    const { data: insertedChapter, error: chapterError } = await supabase
+      .from("chapters")
+      .insert({
+        comic_id: comicId,
+        title: chapter.title,
+        chapter_order: chapterIndex + 1,
+      })
+      .select("id")
+      .single();
+
+    if (chapterError) {
+      throw chapterError;
+    }
+
+    const fileRows = (chapter.files || []).map((file, fileIndex) => ({
+      chapter_id: insertedChapter.id,
+      name: file.name,
+      file_type: file.type,
+      file_url: file.src,
+      file_path: file.path || "",
+      page_order: fileIndex + 1,
+    }));
+
+    if (fileRows.length > 0) {
+      const { error: filesError } = await supabase
+        .from("chapter_files")
+        .insert(fileRows);
+
+      if (filesError) {
+        throw filesError;
+      }
+    }
+  }
+
+  return comicId;
+}
+
+async function deleteComicFromSupabase(comicId) {
+  if (!supabase) {
+    throw new Error("Supabase is not configured.");
+  }
+
+  const { error } = await supabase
+    .from("comics")
+    .delete()
+    .eq("id", comicId);
+
+  if (error) {
+    throw error;
+  }
+}
+
+async function togglePublishInSupabase(comic) {
+  if (!supabase) {
+    throw new Error("Supabase is not configured.");
+  }
+
+  const nextStatus = comic.status === "Published" ? "Draft" : "Published";
+
+  const { error } = await supabase
+    .from("comics")
+    .update({
+      status: nextStatus,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", comic.id);
+
+  if (error) {
+    throw error;
+  }
+}
 }
 
 function pathIsAdmin() {
@@ -653,7 +881,7 @@ function AdminAuth({ onLogin }) {
   );
 }
 
-function AdminBackend({ comics, setComics, allGenres }) {
+function AdminBackend({ comics, allGenres, refreshComics }) {
   const blankForm = {
     title: "",
     author: "",
@@ -715,50 +943,53 @@ function AdminBackend({ comics, setComics, allGenres }) {
   };
 
   const handleChapterUpload = async (event) => {
-    const files = Array.from(event.target.files || []);
-    if (!files.length) return;
+  const files = Array.from(event.target.files || []);
+  if (!files.length) return;
 
-    if (!supabase) {
-      alert("Supabase is not configured. Add your Supabase environment variables first.");
-      event.target.value = "";
-      return;
-    }
+  if (!supabase) {
+    alert("Supabase is not configured. Add your Supabase environment variables first.");
+    event.target.value = "";
+    return;
+  }
 
-    const { data: sessionData } = await supabase.auth.getSession();
-    if (!sessionData.session) {
-      alert("Please log in again before uploading chapter files.");
-      event.target.value = "";
-      return;
-    }
+  const { data: sessionData } = await supabase.auth.getSession();
 
-    const chapterNumber = form.chapters.length + 1;
-    const chapterTitle = normalizeTitle(form.newChapterTitle) || `Chapter ${chapterNumber}`;
+  if (!sessionData.session) {
+    alert("Please log in again before uploading chapter files.");
+    event.target.value = "";
+    return;
+  }
 
-    try {
-      const convertedFiles = await Promise.all(
-        files.map((file, index) => uploadComicFileToSupabase(file, form.title || "untitled-comic", chapterTitle, index))
-      );
+  const chapterNumber = form.chapters.length + 1;
+  const chapterTitle = normalizeTitle(form.newChapterTitle) || `Chapter ${chapterNumber}`;
 
-      setForm((current) => ({
-        ...current,
-        chapters: [
-          ...current.chapters,
-          {
-            id: crypto.randomUUID(),
-            title: chapterTitle,
-            createdAt: todayDate(),
-            files: convertedFiles,
-          },
-        ],
-        newChapterTitle: "",
-      }));
-    } catch (error) {
-      console.error(error);
-      alert(error.message || "Upload failed. Please try again.");
-    } finally {
-      event.target.value = "";
-    }
-  };
+  try {
+    const convertedFiles = await Promise.all(
+      files.map((file, index) =>
+        uploadComicFileToSupabase(file, form.title || "untitled-comic", chapterTitle, index)
+      )
+    );
+
+    setForm((current) => ({
+      ...current,
+      chapters: [
+        ...current.chapters,
+        {
+          id: crypto.randomUUID(),
+          title: chapterTitle,
+          createdAt: todayDate(),
+          files: convertedFiles,
+        },
+      ],
+      newChapterTitle: "",
+    }));
+  } catch (error) {
+    console.error(error);
+    alert(error.message || "Upload failed. Please try again.");
+  } finally {
+    event.target.value = "";
+  }
+};
 
   const removeChapter = (chapterId) => {
     setForm((current) => ({ ...current, chapters: current.chapters.filter((chapter) => chapter.id !== chapterId) }));
@@ -793,34 +1024,36 @@ function AdminBackend({ comics, setComics, allGenres }) {
     }));
   };
 
-  const saveComic = (event) => {
-    event.preventDefault();
-    const title = normalizeTitle(form.title);
-    if (!title || form.genres.length === 0 || form.chapters.length === 0) return;
+  const saveComic = async (event) => {
+  event.preventDefault();
 
-    const comicPayload = {
-      title,
-      author: form.author.trim() || "Unknown creator",
-      description: form.description.trim() || "No description added yet.",
-      genres: [...form.genres].sort((a, b) => a.localeCompare(b)),
-      alternativeTitles: splitLines(form.alternativeTitlesText)
-        .map((title) => normalizeTitle(title))
-        .filter(Boolean),
-      cover: form.cover || "https://images.unsplash.com/photo-1612036782180-6f0b6cd846fe?q=80&w=900&auto=format&fit=crop",
-      featured: form.featured,
-      status: form.status,
-      chapters: form.chapters,
-      createdAt: todayDate(),
-    };
+  const title = normalizeTitle(form.title);
+  if (!title || form.genres.length === 0 || form.chapters.length === 0) return;
 
-    if (editingId) {
-      setComics((current) => current.map((comic) => (comic.id === editingId ? { ...comic, ...comicPayload } : comic)));
-    } else {
-      setComics((current) => [{ id: crypto.randomUUID(), ...comicPayload }, ...current]);
-    }
-
-    resetForm();
+  const comicPayload = {
+    title,
+    author: form.author.trim() || "Unknown creator",
+    description: form.description.trim() || "No description added yet.",
+    genres: [...form.genres].sort((a, b) => a.localeCompare(b)),
+    alternativeTitles: splitLines(form.alternativeTitlesText)
+      .map((item) => normalizeTitle(item))
+      .filter(Boolean),
+    cover: form.cover || "https://images.unsplash.com/photo-1612036782180-6f0b6cd846fe?q=80&w=900&auto=format&fit=crop",
+    featured: form.featured,
+    status: form.status,
+    chapters: form.chapters,
+    createdAt: todayDate(),
   };
+
+  try {
+    await saveComicToSupabase(editingId, comicPayload);
+    await refreshComics?.();
+    resetForm();
+  } catch (error) {
+    console.error(error);
+    alert(error.message || "Save failed. Please try again.");
+  }
+};
 
   const startEdit = (comic) => {
     setEditingId(comic.id);
@@ -840,21 +1073,42 @@ function AdminBackend({ comics, setComics, allGenres }) {
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
-  const deleteComic = (comicId) => {
-    setComics((current) => current.filter((comic) => comic.id !== comicId));
-    if (editingId === comicId) resetForm();
-  };
+  const deleteComic = async (comicId) => {
+  try {
+    await deleteComicFromSupabase(comicId);
+    await refreshComics?.();
 
-  const togglePublish = (comicId) => {
-    setComics((current) =>
-      current.map((comic) =>
-        comic.id === comicId ? { ...comic, status: comic.status === "Published" ? "Draft" : "Published" } : comic
-      )
-    );
-  };
+    if (editingId === comicId) {
+      resetForm();
+    }
+  } catch (error) {
+    console.error(error);
+    alert(error.message || "Delete failed. Please try again.");
+  }
+};
+
+  const togglePublish = async (comicId) => {
+  const comic = comics.find((item) => item.id === comicId);
+  if (!comic) return;
+
+  try {
+    await togglePublishInSupabase(comic);
+    await refreshComics?.();
+  } catch (error) {
+    console.error(error);
+    alert(error.message || "Status update failed. Please try again.");
+  }
+};
 
   if (!isLoggedIn) {
-    return <AdminAuth onLogin={() => setIsLoggedIn(true)} />;
+    return (
+  <AdminAuth
+    onLogin={() => {
+      setIsLoggedIn(true);
+      refreshComics?.();
+    }}
+  />
+);
   }
 
   return (
@@ -1205,23 +1459,13 @@ function ComicReaderModal({ comic, onClose }) {
 export default function ComicPortalWebsite() {
   const [activeView, setActiveView] = useState(() => (pathIsAdmin() ? "admin" : "customer"));
   const [theme, setTheme] = useState(() => localStorage.getItem("comic_portal_theme") || "dark");
-  const [comics, setComics] = useState(() => {
-    try {
-      const saved = localStorage.getItem(storageKey);
-      return saved ? JSON.parse(saved) : starterComics;
-    } catch {
-      return starterComics;
-    }
-  });
+  const [comics, setComics] = useState([]);
+  const [isLoadingComics, setIsLoadingComics] = useState(true);
   const [selectedGenre, setSelectedGenre] = useState("All");
   const [query, setQuery] = useState("");
   const [sortOrder, setSortOrder] = useState("A-Z");
   const [readerComic, setReaderComic] = useState(null);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-
-  useEffect(() => {
-    localStorage.setItem(storageKey, JSON.stringify(comics));
-  }, [comics]);
 
   useEffect(() => {
     if (!adsenseClient) return;
@@ -1302,12 +1546,28 @@ export default function ComicPortalWebsite() {
       </header>
 
       <section className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
-        {activeView === "customer" ? (
-          <CustomerLanding comics={comics} allGenres={allGenres} selectedGenre={selectedGenre} setSelectedGenre={setSelectedGenre} query={query} setQuery={setQuery} sortOrder={sortOrder} setSortOrder={setSortOrder} onRead={setReaderComic} />
-        ) : (
-          <AdminBackend comics={comics} setComics={setComics} allGenres={allGenres} />
-        )}
-      </section>
+  {isLoadingComics ? (
+    <EmptyState title="Loading comics..." description="Please wait while the library loads." />
+  ) : activeView === "customer" ? (
+    <CustomerLanding
+      comics={comics}
+      allGenres={allGenres}
+      selectedGenre={selectedGenre}
+      setSelectedGenre={setSelectedGenre}
+      query={query}
+      setQuery={setQuery}
+      sortOrder={sortOrder}
+      setSortOrder={setSortOrder}
+      onRead={setReaderComic}
+    />
+  ) : (
+    <AdminBackend
+      comics={comics}
+      allGenres={allGenres}
+      refreshComics={refreshComics}
+    />
+  )}
+</section>
 
       <ComicReaderModal comic={readerComic} onClose={() => setReaderComic(null)} />
     </main>
