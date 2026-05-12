@@ -20,7 +20,6 @@ import {
   Eye,
   Menu,
   Database,
-  Users,
   FileText,
   Layers,
   Megaphone,
@@ -33,7 +32,6 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { createClient } from "@supabase/supabase-js";
 
-const storageKey = "comic_portal_library_v2";
 const comicPagesBucket = "Comic-pages";
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
@@ -159,19 +157,6 @@ function getFileType(file) {
   if (file.type === "application/pdf" || name.endsWith(".pdf")) return "PDF";
   if (name.endsWith(".cbz") || name.endsWith(".zip") || name.endsWith(".cbr")) return "Archive";
   return "File";
-}
-
-function readFileAsDataUrl(file) {
-  return new Promise((resolve) => {
-    if (!file.type.startsWith("image/")) {
-      resolve("");
-      return;
-    }
-
-    const reader = new FileReader();
-    reader.onload = () => resolve(reader.result || "");
-    reader.readAsDataURL(file);
-  });
 }
 
 function slugify(value) {
@@ -678,9 +663,9 @@ function CustomerLanding({ comics, allGenres, selectedGenre, setSelectedGenre, q
       <section className="grid gap-6 lg:grid-cols-[1.1fr_0.9fr]">
         <motion.div initial={{ opacity: 0, y: 18 }} animate={{ opacity: 1, y: 0 }} className="rounded-[2rem] border border-white/10 bg-white/10 p-8 shadow-2xl backdrop-blur">
           <p className="mb-3 inline-flex items-center gap-2 rounded-full bg-violet-400/15 px-3 py-1 text-sm text-violet-200">
-            <Library className="h-4 w-4" /> Customer Landing Page
+            <Library className="h-4 w-4" /> Jjangboards
           </p>
-          <h1 className="max-w-3xl text-5xl font-black tracking-tight sm:text-6xl">Discover your next favorite comic.</h1>
+          <h1 className="max-w-3xl text-5xl font-black tracking-tight sm:text-6xl">Discover your next favorite story.</h1>
           <p className="mt-5 max-w-2xl text-lg leading-8 text-slate-300">
             Browse comics by title, genre, and chapter. Some chapters can be PDFs, while others can be uploaded as individual image pages.
           </p>
@@ -811,6 +796,8 @@ function AdminAuth({ onLogin }) {
     });
 
     return () => listener.subscription.unsubscribe();
+    // onLogin is intentionally omitted to avoid re-triggering admin auth refresh loops.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const handleSubmit = async (event) => {
@@ -1409,13 +1396,7 @@ function AdminBackend({ comics, allGenres, refreshComics }) {
 }
 
 function ComicReaderModal({ comic, onClose }) {
-  const [activeChapterId, setActiveChapterId] = useState(null);
-
-  useEffect(() => {
-    if (comic?.chapters?.length) {
-      setActiveChapterId(comic.chapters[0].id);
-    }
-  }, [comic]);
+  const [activeChapterId, setActiveChapterId] = useState(() => comic?.chapters?.[0]?.id || null);
 
   if (!comic) return null;
 
@@ -1546,7 +1527,10 @@ export default function ComicPortalWebsite() {
   };
 
   useEffect(() => {
+    // Initial data load for Supabase-backed comic metadata.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     refreshComics({ showLoading: true });
+    // refreshComics is intentionally omitted so this runs only once on mount.
   }, []);
 
   useEffect(() => {
@@ -1590,10 +1574,10 @@ export default function ComicPortalWebsite() {
         .light-theme .bg-slate-950 { background-color: rgb(241 245 249) !important; }
         .light-theme .bg-slate-900 { background-color: rgb(255 255 255) !important; }
         .light-theme .bg-slate-800 { background-color: rgb(226 232 240) !important; }
-        .light-theme .bg-white\/10, .light-theme .bg-white\/5 { background-color: rgb(255 255 255) !important; }
+        .light-theme .bg-white\\/10, .light-theme .bg-white\\/5 { background-color: rgb(255 255 255) !important; }
         .light-theme .text-white { color: rgb(15 23 42) !important; }
         .light-theme .text-slate-300, .light-theme .text-slate-400, .light-theme .text-slate-500 { color: rgb(71 85 105) !important; }
-        .light-theme .border-white\/10, .light-theme .border-white\/20 { border-color: rgb(203 213 225) !important; }
+        .light-theme .border-white\\/10, .light-theme .border-white\\/20 { border-color: rgb(203 213 225) !important; }
         .light-theme input, .light-theme textarea, .light-theme select { background-color: rgb(255 255 255) !important; color: rgb(15 23 42) !important; }
         .light-theme .shadow-2xl, .light-theme .shadow-xl, .light-theme .shadow-lg { box-shadow: 0 20px 45px rgb(15 23 42 / 0.12) !important; }
       `}</style>
@@ -1605,7 +1589,7 @@ export default function ComicPortalWebsite() {
             </div>
             <div>
               <p className="text-lg font-black leading-none">Jjangboards</p>
-              <p className="text-xs text-slate-400">Comic portal</p>
+              <p className="text-xs text-slate-400">Comics and webtoons</p>
             </div>
           </button>
 
