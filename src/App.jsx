@@ -525,46 +525,58 @@ function EmptyState({ title, description }) {
   );
 }
 
-const adsenseClient = import.meta.env.VITE_GOOGLE_ADSENSE_CLIENT || "";
-const adSlots = {
-  top: import.meta.env.VITE_GOOGLE_ADSENSE_TOP_SLOT || "",
-  catalog: import.meta.env.VITE_GOOGLE_ADSENSE_CATALOG_SLOT || "",
-  bottom: import.meta.env.VITE_GOOGLE_ADSENSE_BOTTOM_SLOT || "",
-};
-
-function GoogleAdSlot({ label = "Advertisement", slot = "" }) {
+function JuicyAdSlot({
+  zoneId = "1118031",
+  width = 728,
+  height = 90,
+  label = "Advertisement",
+}) {
   useEffect(() => {
-    if (!adsenseClient || !slot) return;
-    try {
-      window.adsbygoogle = window.adsbygoogle || [];
-      window.adsbygoogle.push({});
-    } catch {
-      // AdSense may not be ready immediately; the script will retry on later renders.
+    if (!document.querySelector("script[data-juicyads-script='true']")) {
+      const script = document.createElement("script");
+      script.type = "text/javascript";
+      script.async = true;
+      script.setAttribute("data-cfasync", "false");
+      script.setAttribute("data-juicyads-script", "true");
+      script.src = "https://poweredby.jads.co/js/jads.js";
+      document.head.appendChild(script);
     }
-  }, [slot]);
+
+    const timer = window.setTimeout(() => {
+      try {
+        window.adsbyjuicy = window.adsbyjuicy || [];
+        window.adsbyjuicy.push({ adzone: Number(zoneId) });
+      } catch (error) {
+        console.error("JuicyAds failed to load:", error);
+      }
+    }, 500);
+
+    return () => window.clearTimeout(timer);
+  }, [zoneId]);
 
   return (
-    <aside className="rounded-[2rem] border border-dashed border-amber-300/40 bg-amber-300/10 p-5 text-center text-amber-100">
-      {adsenseClient && slot ? (
+    <aside className="mx-auto flex w-full justify-center rounded-[2rem] border border-white/10 bg-white/5 p-4">
+      <div className="text-center">
+        <p className="mb-2 text-xs uppercase tracking-[0.25em] text-slate-500">
+          {label}
+        </p>
+
         <ins
-          className="adsbygoogle"
-          style={{ display: "block" }}
-          data-ad-client={adsenseClient}
-          data-ad-slot={slot}
-          data-ad-format="auto"
-          data-full-width-responsive="true"
+          id={zoneId}
+          data-width={String(width)}
+          data-height={String(height)}
+          style={{
+            display: "inline-block",
+            width: `${width}px`,
+            height: `${height}px`,
+            maxWidth: "100%",
+          }}
         />
-      ) : (
-        <div>
-          <div className="mx-auto mb-3 grid h-12 w-12 place-items-center rounded-2xl bg-amber-300 text-slate-950">
-            <Megaphone className="h-6 w-6" />
-          </div>
-          <p className="font-bold">{label}</p>
-        </div>
-      )}
+      </div>
     </aside>
   );
 }
+
 
 function ComicCard({ comic, onRead, adminActions }) {
   const chapterCount = comic.chapters?.length || 0;
@@ -658,7 +670,7 @@ function CustomerLanding({ comics, allGenres, selectedGenre, setSelectedGenre, q
 
   return (
     <div className="space-y-8">
-      <GoogleAdSlot label="Advertisement" slot={adSlots.top} />
+      <JuicyAdSlot />
 
       <section className="grid gap-6 lg:grid-cols-[1.1fr_0.9fr]">
         <motion.div initial={{ opacity: 0, y: 18 }} animate={{ opacity: 1, y: 0 }} className="rounded-[2rem] border border-white/10 bg-white/10 p-8 shadow-2xl backdrop-blur">
@@ -741,7 +753,7 @@ function CustomerLanding({ comics, allGenres, selectedGenre, setSelectedGenre, q
           ) : (
             Object.entries(groupedComics).map(([letter, items], groupIndex) => (
               <React.Fragment key={letter}>
-                {groupIndex === 1 && <GoogleAdSlot label="Advertisement" slot={adSlots.catalog} />}
+                {groupIndex === 1 && <JuicyAdSlot />}
                 <motion.section layout initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -12 }} className="rounded-[2rem] border border-white/10 bg-white/10 p-5 shadow-xl backdrop-blur">
                   <div className="mb-4 flex items-center gap-3">
                     <div className="grid h-11 w-11 place-items-center rounded-2xl bg-violet-300 text-xl font-black text-slate-950">{letter}</div>
@@ -761,7 +773,7 @@ function CustomerLanding({ comics, allGenres, selectedGenre, setSelectedGenre, q
           )}
         </AnimatePresence>
 
-        <GoogleAdSlot label="Advertisement" slot={adSlots.bottom} />
+        <JuicyAdSlot />
       </section>
     </div>
   );
