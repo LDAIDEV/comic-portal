@@ -22,7 +22,6 @@ import {
   Database,
   FileText,
   Layers,
-  Megaphone,
   UserPlus,
   Sun,
   Moon,
@@ -753,7 +752,6 @@ function CustomerLanding({ comics, allGenres, selectedGenre, setSelectedGenre, q
           ) : (
             Object.entries(groupedComics).map(([letter, items], groupIndex) => (
               <React.Fragment key={letter}>
-                {groupIndex === 1 && <JuicyAdSlot />}
                 <motion.section layout initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -12 }} className="rounded-[2rem] border border-white/10 bg-white/10 p-5 shadow-xl backdrop-blur">
                   <div className="mb-4 flex items-center gap-3">
                     <div className="grid h-11 w-11 place-items-center rounded-2xl bg-violet-300 text-xl font-black text-slate-950">{letter}</div>
@@ -773,7 +771,6 @@ function CustomerLanding({ comics, allGenres, selectedGenre, setSelectedGenre, q
           )}
         </AnimatePresence>
 
-        <JuicyAdSlot />
       </section>
     </div>
   );
@@ -1553,18 +1550,6 @@ export default function ComicPortalWebsite() {
     });
 
     return () => listener.subscription.unsubscribe();
-  }, []);
-
-  useEffect(() => {
-    if (!adsenseClient) return;
-    if (document.querySelector("script[data-adsense-script='true']")) return;
-
-    const script = document.createElement("script");
-    script.async = true;
-    script.src = `https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=${adsenseClient}`;
-    script.crossOrigin = "anonymous";
-    script.dataset.adsenseScript = "true";
-    document.head.appendChild(script);
   }, []);
 
   useEffect(() => {
